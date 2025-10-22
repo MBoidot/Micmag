@@ -23,10 +23,13 @@ from dessinexport import dessinexport
 # --- Main analysis loop ---
 # --------------------------------------------------------------------------
 
+print("🟢 Starting image analysis...")
+
 for ech in range(len(ECHTS)):  # For each sample
     echt = ECHTS[ech]
-    nbtypes = len(TYPES) // 3
+    print(f"\n📦 Processing sample {ech+1}/{len(ECHTS)}: {echt}")
 
+    nbtypes = len(TYPES) // 3
     for typ in range(nbtypes):  # For each type/depth
         type_str = TYPES[typ * 3 : typ * 3 + 3]
 
@@ -35,6 +38,7 @@ for ech in range(len(ECHTS)):  # For each sample
             type_str = type_str[:2]
 
         nbrephotos = NBPHOTOS[5 * ech + typ]
+        print(f"  🔹 Type {typ+1}/{nbtypes}: {type_str}, {nbrephotos} photo(s)")
 
         for fich in range(1, nbrephotos + 1):  # For each image
             photo = f"{nomanip}{echt}-{type_str}{fich}"
@@ -46,28 +50,39 @@ for ech in range(len(ECHTS)):  # For each sample
 
             img_path = chePH + ".TIF"
             if not os.path.exists(img_path):
-                print(f"⚠️  Image not found: {img_path}")
+                print(f"    ⚠️  Image not found: {img_path}")
                 continue
+
+            print(f"    🖼️  Processing photo {fich}/{nbrephotos}: {img_path}")
 
             # Read and normalize image
             M = imageio.imread(img_path).astype(np.float64) / 255.0
             hauteur, largeur = M.shape[:2]
 
-            # For quick tests (start from pixel 10)
-            step = 5  # adjust as needed
+            # For quick tests increase step, for precision keep at 1
+            step = 10  # adjust as needed
             plagex = np.arange(1, hauteur + 1, step)
             plagey = np.arange(1, largeur + 1, step)
+            print(
+                f"      🔹 Processing pixel grid: plagex {len(plagex)} points, plagey {len(plagey)} points"
+            )
 
             # Choose processing path
             if "T" not in type_str:  # face views → spacing calculation
-                M = binarisation(M)
-                M = distance(M)
-                M = distribution(M)
+                print("      ⚙️  Running binarisation...")
+                M = binarisation(M, plagex, plagey)
+                print("      ⚙️  Running distance calculation...")
+                M = distance(M, plagex, plagey)
+                print("      ⚙️  Running distribution calculation...")
+                M = distribution(M, plagex, plagey)
             else:  # cross-sections → angle calculation
-                M = binarisation(M)
-                M = calculangle(M)
+                print("      ⚙️  Running binarisation...")
+                M = binarisation(M, plagex, plagey)
+                print("      ⚙️  Running angle calculation...")
+                M = calculangle(M, plagex, plagey)
 
             # Export results
+            print(f"      💾 Exporting results to {cheRES}")
             dessinexport(M, cheRES)
 
 print("\n✅ Image analysis complete. Results saved in the 'Résultats' folder.")
