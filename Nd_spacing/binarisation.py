@@ -1,57 +1,51 @@
 # -*- coding: utf-8 -*-
 """
-binarisation.py
-----------------
-Python version using Sauvola adaptive thresholding for Nd-rich detection.
+binarisation_quantile.py
+------------------------
+Local adaptive binarization using intensity quantiles.
 """
 
 import numpy as np
-from skimage.filters import threshold_sauvola
-from skimage.morphology import opening, closing, square
+from scipy.ndimage import uniform_filter
 
 
-def binarisation(M, plagex=None, plagey=None, window_size=20, k=0.2, morph_size=3):
+def binarisation_quantile(M, window_size=15, quantile=0.05):
     """
-    Perform local adaptive binarization using Sauvola method.
+    Local quantile-based binarization.
 
     Parameters
     ----------
     M : ndarray
-        2D grayscale image (values between 0 and 1).
-    plagex, plagey : optional
-        Pixel ranges to process (for speed).
+        2D grayscale image (values 0-1)
     window_size : int
-        Neighborhood size for Sauvola threshold.
-    k : float
-        Sauvola parameter (typically 0.2 to 0.5).
-    morph_size : int
-        Size of morphological opening/closing to remove small noise.
+        Size of the square window for local quantile calculation
+    quantile : float
+        Quantile threshold (e.g., 0.05 for 5th percentile)
 
     Returns
     -------
     N : ndarray
-        Binary image (1 = matrix, 0 = Nd-rich phase).
+        Binary image (1=matrix, 0=Nd-rich)
     """
+    hauteur, largeur = M.shape
+    N = np.ones_like(M, dtype=np.uint8)
 
-    hauteur, largeur = M.shape[:2]
+    half = window_size // 2
 
-    # If no subgrid is provided, process the whole image
-    if plagex is None:
-        plagex = np.arange(hauteur)
-    if plagey is None:
-        plagey = np.arange(largeur)
+    # Pad image to handle borders
+    Mp = np.pad(M, pad_width=half, mode="reflect")
 
-    # Compute Sauvola threshold map
-    thresh_map = threshold_sauvola(M, window_size=window_size, k=k)
+    for x in range(hauteur):
+        for y in range(largeur):
+            x_min = x
+            x_max = x + window_size
+            y_min = y
+            y_max = y + window_size
 
-    # Binarize: 1 = matrix, 0 = Nd-rich
-    N = np.ones_like(M)
-    N[M <= thresh_map] = 0
+            window = Mp[x_min:x_max, y_min:y_max]
+            threshold = np.quantile(window, quantile)
 
-    # Optional: morphological cleaning on the full image
-    selem = square(morph_size)
-    N = opening(N, selem)
-    N = closing(N, selem)
+            if M[x, y] < threshold:
+                N[x, y] = 0  # Nd-rich
 
-    # If only subgrid was intended, return the full N anyway (for compatibility)
     return N
