@@ -1,0 +1,88 @@
+# ============================================================
+# Python build / cache files
+# ============================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+build/
+dist/
+*.manifest
+*.spec
+
+# ============================================================
+# MATLAB autosaves and cache
+# ============================================================
+*.asv
+*.mex*
+*.mat
+*.mexa64
+*.mexw64
+
+# ============================================================
+# IDEs and editors
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db
+
+# ============================================================
+# Jupyter / notebooks (if any)
+# ============================================================
+.ipynb_checkpoints/
+
+# ============================================================
+# Project-generated data
+# ============================================================
+# Image analysis outputs and results
+*.xls
+*.xlsx
+*.csv
+
+# Ignore all TIFF images (any case)
+*.tif
+*.tiff
+*.TIF
+*.TIFF
+
+# Specific generated images
+*-binaire.TIF
+*-traite.TIF
+*-data.TIF
+
+# Intermediate or large data folders
+Results/
+Résultats/
+output/
+outputs/
+data/
+temp/
+tmp/
+
+# ============================================================
+# Logs and reports
+# ============================================================
+*.log
+*.out
+*.err
+*.sav
+*.dat
+
+# ============================================================
+# Environment and dependencies
+# ============================================================
+.venv/
+venv/
+env/
+.env
+Pipfile
+Pipfile.lock
+poetry.lock
