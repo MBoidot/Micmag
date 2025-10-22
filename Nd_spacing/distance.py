@@ -56,13 +56,13 @@ def first_pass_numba(
             # Right boundary
             i1, rd = 0, 1
             while i1 < fl * lex and rd == 1:
-                rd = min(rd, min(vtest[fl * lex + i1], vtest2[fl * lex + i1]))
+                rd = min(rd, min(int(vtest[fl * lex + i1]), int(vtest2[fl * lex + i1])))
                 i1 += 1
 
             # Left boundary
             i2, rg = 0, 1
             while i2 < fl * lex and rg == 1:
-                rg = min(rg, min(vtest[fl * lex - i2], vtest2[fl * lex - i2]))
+                rg = min(rg, min(int(vtest[fl * lex - i2]), int(vtest2[fl * lex - i2])))
                 i2 += 1
 
             if rd >= 0 and rg >= 0:

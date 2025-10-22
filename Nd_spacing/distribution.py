@@ -28,6 +28,9 @@ def distribution(DM):
         Normalized frequency of each class.
     """
 
+    if isinstance(DM, tuple):
+        DM = DM[1]
+
     # Define histogram class boundaries (same as MATLAB)
     classes = np.arange(0, 2 * dmax + (pasdistri * 0.9), pasdistri)
     L = len(classes)

@@ -36,7 +36,7 @@ bpf = np.array(
 # PATHS
 # --------------------------------------------------------------------------
 
-che = r"C:/Users/MB232649/Documents/M.Boidot Local/Informatique/Projets-info/2025-Nd_Rich_Spacing/Code_matlab_OT_original/"
+che = r"C:/Users/MB232649/Documents/M.Boidot Local/Informatique/Projets-info/2025-Nd_Rich_Spacing/Nd_spacing/"
 cheM = os.path.join(
     che, manip, ""
 )  # Folder for the current manipulation (must contain 'RESULTATS' subfolder)
