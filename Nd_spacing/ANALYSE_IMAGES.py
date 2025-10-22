@@ -60,12 +60,9 @@ for ech in range(len(ECHTS)):  # For each sample
             hauteur, largeur = M.shape[:2]
 
             # For quick tests increase step, for precision keep at 1
-            step = 20  # adjust as needed
-            plagex = np.arange(1, hauteur + 1, step)
-            plagey = np.arange(1, largeur + 1, step)
-            print(
-                f"      🔹 Processing pixel grid: plagex {len(plagex)} points, plagey {len(plagey)} points"
-            )
+            step = 1  # adjust as needed
+            plagex = np.arange(1, hauteur, step)
+            plagey = np.arange(1, largeur, step)
 
             # Choose processing path
             if "T" not in type_str:  # face views → spacing calculation
