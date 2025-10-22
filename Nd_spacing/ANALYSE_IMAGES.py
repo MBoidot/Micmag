@@ -60,7 +60,7 @@ for ech in range(len(ECHTS)):  # For each sample
             hauteur, largeur = M.shape[:2]
 
             # For quick tests increase step, for precision keep at 1
-            step = 10  # adjust as needed
+            step = 20  # adjust as needed
             plagex = np.arange(1, hauteur + 1, step)
             plagey = np.arange(1, largeur + 1, step)
             print(
@@ -74,7 +74,7 @@ for ech in range(len(ECHTS)):  # For each sample
                 print("      ⚙️  Running distance calculation...")
                 M = distance(M, plagex, plagey)
                 print("      ⚙️  Running distribution calculation...")
-                M = distribution(M, plagex, plagey)
+                M = distribution(M)
             else:  # cross-sections → angle calculation
                 print("      ⚙️  Running binarisation...")
                 M = binarisation(M, plagex, plagey)

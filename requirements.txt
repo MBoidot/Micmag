@@ -1,0 +1,6 @@
+numpy==2.0
+numba
+imageio
+openpyxl
+matplotlib
+pandas
