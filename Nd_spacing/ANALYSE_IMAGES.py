@@ -69,28 +69,28 @@ for ech in range(len(ECHTS)):  # For each sample
                 print("      ⚙️  Running binarisation...")
                 M_bin = binarisation(M)  # binary image
 
-                print("      ⚙️  Running distance calculation...")
+                """print("      ⚙️  Running distance calculation...")
                 D, DM = distance(
                     M_bin, plagex, plagey
                 )  # D: raw spacing, DM: smoothed spacing
 
                 print("      ⚙️  Running distribution calculation...")
-                Classes, distri = distribution(DM)  # compute histogram/distribution
+                Classes, distri = distribution(DM)  # compute histogram/distribution"""
 
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(
-                    M_bin, DM, Classes, distri, chePH, cheRES, photo
+                    M_bin, None, None, None, chePH, cheRES, photo
                 )  # export images and data
             else:  # cross-sections → angle calculation
                 print("      ⚙️  Running binarisation...")
                 M_bin = binarisation(M, plagex, plagey)
 
-                print("      ⚙️  Running angle calculation...")
-                M_angle = calculangle(M_bin, plagex, plagey)
+                """print("      ⚙️  Running angle calculation...")
+                M_angle = calculangle(M_bin, plagex, plagey)"""
 
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(
-                    M_bin, M_angle, None, None, chePH, cheRES, photo
+                    M_bin, None, None, None, chePH, cheRES, photo
                 )  # distribution may not apply
 
 print("\n✅ Image analysis complete. Results saved in the 'Résultats' folder.")
