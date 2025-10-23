@@ -2,18 +2,17 @@
 """
 binarisation.py
 ----------------
-CLAHE + background correction + Otsu thresholding.
-Compatible with legacy call: binarisation(M, plagex=None, plagey=None).
+Background correction + CLAHE + Adaptive thresholding + Morphological cleanup.
 
 Returns
 -------
 N : ndarray (uint8)
-    Binary mask: 1 = matrix (bright), 0 = Nd-rich (dark).
+    Binary mask: 1 = Nd-rich phase (white), 0 = magnetic matrix (black).
 """
 
 import numpy as np
 import cv2
-from PARAMETRES import dmax, nbangles, fl, lex, dec, q2  # kept for compatibility
+from PARAMETRES import dmax, nbangles, fl, lex, dec, q2  # for compatibility
 
 
 def binarisation(
@@ -23,7 +22,12 @@ def binarisation(
     *,
     clip_limit=2.0,
     tile_grid_size=(8, 8),
-    blur_kernel=51
+    blur_kernel=51,
+    block_size=51,
+    C=2,
+    kernel_size=5,
+    n_close=2,
+    n_open=1,
 ):
     """
     Parameters
@@ -36,58 +40,72 @@ def binarisation(
     tile_grid_size : tuple
         CLAHE tile grid size.
     blur_kernel : int
-        Kernel size for Gaussian blur used to estimate background (must be odd).
-        Set to None or <=1 to skip background correction.
-    return_enhanced : bool
-        If True, return (N, M_eq) where M_eq is the contrast-enhanced image (uint8).
-    debug : bool
-        If True, print basic stats for tuning.
+        Gaussian blur kernel for background correction (odd).
+    block_size : int
+        Block size for adaptive threshold (odd).
+    C : float
+        Constant subtracted in adaptive threshold (smaller = more white retained).
+    kernel_size : int
+        Morphological kernel size (odd).
+    n_close : int
+        Number of closing iterations (fill small holes in white regions).
+    n_open : int
+        Number of opening iterations (remove small white specks).
 
     Returns
     -------
-    N or (N, M_eq)
+    N : ndarray
+        Binary mask (uint8): 1 = Nd-rich, 0 = matrix.
     """
-    # --- Normalize input to 8-bit grayscale ---
+
     if M is None:
         raise ValueError("Input image M is None")
+
+    # --- Normalize input to 8-bit grayscale ---
     M_arr = np.asarray(M)
     if M_arr.ndim == 3 and M_arr.shape[2] > 1:
-        # convert color to grayscale by luminosity if needed
-        M_gray = cv2.cvtColor(
-            (
-                (M_arr * 255).astype(np.uint8)
-                if M_arr.max() <= 1.0
-                else M_arr.astype(np.uint8)
-            ),
-            cv2.COLOR_BGR2GRAY,
-        )
-    else:
         if M_arr.max() <= 1.0:
-            M_gray = (M_arr * 255).astype(np.uint8)
+            M_gray = cv2.cvtColor((M_arr * 255).astype(np.uint8), cv2.COLOR_BGR2GRAY)
         else:
-            M_gray = M_arr.astype(np.uint8)
+            M_gray = cv2.cvtColor(M_arr.astype(np.uint8), cv2.COLOR_BGR2GRAY)
+    else:
+        M_gray = (
+            (M_arr * 255).astype(np.uint8)
+            if M_arr.max() <= 1.0
+            else M_arr.astype(np.uint8)
+        )
 
-    # --- Background correction (large-scale illumination) ---
+    # --- Background correction ---
     if blur_kernel is not None and int(blur_kernel) > 1:
-        # ensure odd kernel size
         bk = int(blur_kernel) if int(blur_kernel) % 2 == 1 else int(blur_kernel) + 1
         background = cv2.GaussianBlur(M_gray, (bk, bk), 0)
-        # Subtract background and rescale
         M_corr = cv2.subtract(M_gray, background)
         M_corr = cv2.normalize(M_corr, None, 0, 255, cv2.NORM_MINMAX)
     else:
         M_corr = M_gray
 
-    # --- CLAHE (local contrast enhancement) ---
+    # --- CLAHE enhancement ---
     clahe = cv2.createCLAHE(clipLimit=float(clip_limit), tileGridSize=tile_grid_size)
     M_eq = clahe.apply(M_corr)
 
-    # --- Otsu thresholding (on enhanced image) ---
-    _, thresh_img = cv2.threshold(M_eq, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # --- Adaptive Gaussian thresholding ---
+    block_size = block_size if block_size % 2 == 1 else block_size + 1
+    N = cv2.adaptiveThreshold(
+        M_eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, block_size, C
+    )
 
-    # By convention in this project: Nd-rich (dark) = 0, matrix (bright) = 1
-    N = (thresh_img > 0).astype(np.uint8)  # 1 for matrix
-    # ensure values are 0/1
-    N = N.copy()
+    # Convert to binary 0/1
+    N = (N > 0).astype(np.uint8)
+
+    # --- Morphological cleanup (Nd-rich = white) ---
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+
+    # Step 1: close dark holes inside white Nd-rich regions
+    if n_close > 0:
+        N = cv2.morphologyEx(N, cv2.MORPH_CLOSE, kernel, iterations=n_close)
+
+    # Step 2: remove small isolated white specks
+    if n_open > 0:
+        N = cv2.morphologyEx(N, cv2.MORPH_OPEN, kernel, iterations=n_open)
 
     return N

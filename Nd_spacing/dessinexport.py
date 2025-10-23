@@ -42,10 +42,10 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     plt.imshow(N, cmap="gray", interpolation="nearest")
     plt.axis("off")
     plt.tight_layout()
-    plt.savefig(f"{chePH}-binaire_clahe_bgcorrection_otsu.TIF", dpi=120)
+    plt.savefig(f"{chePH}-binaire_clahe_bgcorrection_adaptive+OC.TIF", dpi=120)
     plt.close()
 
-    """# --- Figure 2: processed (DM) image ---
+    # --- Figure 2: processed (DM) image ---
     plt.figure(figsize=(6, 5), facecolor="w")
     plt.imshow(DM, cmap="viridis", interpolation="nearest")
     plt.axis("off")
@@ -66,7 +66,7 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     # --- Excel export ---
     df = pd.DataFrame({"Classes": Classes.flatten(), "distri": distri.flatten()})
     df.to_excel(cheRES, index=False)
-"""
+
     print(f"✅ Exported: {photo}")
     print(f"   ├─ {chePH}-binaire.TIF")
     print(f"   ├─ {chePH}-traite.TIF")

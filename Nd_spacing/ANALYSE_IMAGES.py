@@ -67,15 +67,25 @@ for ech in range(len(ECHTS)):  # For each sample
             # Choose processing path
             if "T" not in type_str:  # face views → spacing calculation
                 print("      ⚙️  Running binarisation...")
-                M_bin = binarisation(M)  # binary image
+                M_bin = binarisation(
+                    M,
+                    clip_limit=2.0,
+                    tile_grid_size=(8, 8),
+                    blur_kernel=101,
+                    block_size=41,
+                    C=3,
+                    kernel_size=2,
+                    n_close=1,
+                    n_open=1,
+                )  # binary image
 
-                """print("      ⚙️  Running distance calculation...")
+                print("      ⚙️  Running distance calculation...")
                 D, DM = distance(
                     M_bin, plagex, plagey
                 )  # D: raw spacing, DM: smoothed spacing
 
                 print("      ⚙️  Running distribution calculation...")
-                Classes, distri = distribution(DM)  # compute histogram/distribution"""
+                Classes, distri = distribution(DM)  # compute histogram/distribution
 
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(
@@ -83,10 +93,20 @@ for ech in range(len(ECHTS)):  # For each sample
                 )  # export images and data
             else:  # cross-sections → angle calculation
                 print("      ⚙️  Running binarisation...")
-                M_bin = binarisation(M, plagex, plagey)
+                M_bin = binarisation(
+                    M,
+                    clip_limit=2.0,
+                    tile_grid_size=(8, 8),
+                    blur_kernel=101,
+                    block_size=41,
+                    C=3,
+                    kernel_size=2,
+                    n_close=1,
+                    n_open=1,
+                )
 
-                """print("      ⚙️  Running angle calculation...")
-                M_angle = calculangle(M_bin, plagex, plagey)"""
+                print("      ⚙️  Running angle calculation...")
+                M_angle = calculangle(M_bin, plagex, plagey)
 
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(
