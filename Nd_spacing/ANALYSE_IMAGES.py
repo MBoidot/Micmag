@@ -89,7 +89,7 @@ for ech in range(len(ECHTS)):  # For each sample
 
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(
-                    M_bin, None, None, None, chePH, cheRES, photo
+                    M_bin, DM, Classes, distri, chePH, cheRES, photo
                 )  # export images and data
             else:  # cross-sections → angle calculation
                 print("      ⚙️  Running binarisation...")
@@ -106,11 +106,11 @@ for ech in range(len(ECHTS)):  # For each sample
                 )
 
                 print("      ⚙️  Running angle calculation...")
-                M_angle = calculangle(M_bin, plagex, plagey)
+                M_angle = calculangle(M_bin)
 
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(
-                    M_bin, None, None, None, chePH, cheRES, photo
+                    M_bin, M_angle, None, None, chePH, cheRES, photo
                 )  # distribution may not apply
 
 print("\n✅ Image analysis complete. Results saved in the 'Résultats' folder.")
