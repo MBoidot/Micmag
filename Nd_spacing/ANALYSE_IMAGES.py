@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
+"""
+analyse_images.py
+-----------------
+Main script to analyze images and export one .xlsx file per image.
+
+Python equivalent of MATLAB's ANALYSE_IMAGES.m
+"""
 
 import os
 import numpy as np
 import imageio.v2 as imageio
 
-
+# Import configuration and processing modules
 from PARAMETRES import *
 from binarisation import binarisation
 from distance import distance
@@ -15,10 +22,7 @@ from dessinexport import dessinexport
 # --------------------------------------------------------------------------
 # --- Main analysis loop ---
 # --------------------------------------------------------------------------
-
 step = 1  # adjust as needed
-window = 51
-
 print("🟢 Starting image analysis...")
 
 for ech in range(len(ECHTS)):  # For each sample
@@ -63,9 +67,7 @@ for ech in range(len(ECHTS)):  # For each sample
             # Choose processing path
             if "T" not in type_str:  # face views → spacing calculation
                 print("      ⚙️  Running binarisation...")
-                M_bin = binarisation(
-                    M, plagex, plagey, window_size=window
-                )  # binary image
+                M_bin = binarisation(M)  # binary image
 
                 print("      ⚙️  Running distance calculation...")
                 D, DM = distance(

@@ -1,51 +1,43 @@
-# -*- coding: utf-8 -*-
-"""
-binarisation_quantile.py
-------------------------
-Local adaptive binarization using intensity quantiles.
-"""
-
 import numpy as np
-from scipy.ndimage import uniform_filter
+import cv2
+from PARAMETRES import dmax, nbangles, fl, lex, dec, q2  # kept for compatibility
 
 
-def binarisation_quantile(M, window_size=15, quantile=0.05):
+def binarisation(M, plagex=None, plagey=None, clip_limit=2.0, tile_grid_size=(8, 8)):
     """
-    Local quantile-based binarization.
+    Performs local binarization with CLAHE + Otsu thresholding.
 
     Parameters
     ----------
     M : ndarray
-        2D grayscale image (values 0-1)
-    window_size : int
-        Size of the square window for local quantile calculation
-    quantile : float
-        Quantile threshold (e.g., 0.05 for 5th percentile)
+        2D grayscale image (values between 0 and 1 or 0–255).
+    plagex, plagey : ignored
+        Kept for compatibility with analyse_image.
+    clip_limit : float, optional
+        CLAHE contrast limit (default=2.0).
+    tile_grid_size : tuple(int, int), optional
+        Size of local CLAHE tiles (default=(8, 8)).
 
     Returns
     -------
     N : ndarray
-        Binary image (1=matrix, 0=Nd-rich)
+        Binary image (1 = matrix, 0 = Nd-rich phase).
     """
-    hauteur, largeur = M.shape
-    N = np.ones_like(M, dtype=np.uint8)
 
-    half = window_size // 2
+    # --- Normalize image ---
+    if M.max() <= 1.0:
+        M = (M * 255).astype(np.uint8)
+    else:
+        M = M.astype(np.uint8)
 
-    # Pad image to handle borders
-    Mp = np.pad(M, pad_width=half, mode="reflect")
+    # --- Apply CLAHE (contrast enhancement) ---
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
+    M_eq = clahe.apply(M)
 
-    for x in range(hauteur):
-        for y in range(largeur):
-            x_min = x
-            x_max = x + window_size
-            y_min = y
-            y_max = y + window_size
+    # --- Otsu thresholding ---
+    _, N = cv2.threshold(M_eq, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-            window = Mp[x_min:x_max, y_min:y_max]
-            threshold = np.quantile(window, quantile)
-
-            if M[x, y] < threshold:
-                N[x, y] = 0  # Nd-rich
+    # Invert binary map → Nd-rich (dark) = 0, matrix (bright) = 1
+    N = 1 - N
 
     return N
