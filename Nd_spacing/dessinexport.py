@@ -64,7 +64,7 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     plt.savefig(f"{chePH}-binaire_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
     plt.close()
 
-    # --- Figure 2: processed (DM) image with hemispheric legend below ---
+    # --- Figure 2: processed (DM) image with proportional hemispheric legend below ---
     fig, ax = plt.subplots(2, 1, figsize=(6, 7), facecolor="w", height_ratios=[4, 1])
 
     # --- Mask background (no-angle) pixels ---
@@ -76,23 +76,33 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     im = ax[0].imshow(DM_masked, cmap=cmap, vmin=-90, vmax=90)
     ax[0].set_title("Local orientation (DM)")
     ax[0].axis("off")
-    fig.colorbar(im, ax=ax[0], orientation="vertical", label="Angle (°)")
+    #    fig.colorbar(im, ax=ax[0], orientation="vertical", label="Angle (°)")
 
-    # --- Bottom: horizontal (upper) semicircle legend ---
-    res = 300
-    radius = 1.0
-    y, x = np.meshgrid(np.linspace(0, 1, res), np.linspace(-1, 1, 2 * res))
-    r = np.sqrt(x**2 + y**2)
-    theta = np.degrees(np.arctan2(y, x))  # -90° (left) to +90° (right)
+    # --- Bottom: proportional upper semicircle legend ---
+    res = 150  # resolution
+    height = 1.0
+    width = 2.0 * height
+
+    # meshgrid
+    x = np.linspace(-1, 1, 2 * res)
+    y = np.linspace(0, 1, res)
+    X, Y = np.meshgrid(x, y)
+
+    r = np.sqrt(X**2 + Y**2)
+    theta = np.degrees(np.arctan2(X, Y))
     theta = np.clip(theta, -90, 90)
 
-    # Mask outside the half-circle
     legend = np.full_like(theta, np.nan)
-    mask = r <= radius
+    mask = r <= 1.0  # circle radius = 1
     legend[mask] = theta[mask]
 
     ax[1].imshow(
-        legend, cmap="viridis", vmin=-90, vmax=90, origin="lower", aspect="auto"
+        legend,
+        cmap="viridis",
+        vmin=-90,
+        vmax=90,
+        origin="lower",
+        aspect="equal",  # force 1:1 aspect ratio
     )
     ax[1].axis("off")
     ax[1].set_title("Orientation legend (°)", pad=8)
