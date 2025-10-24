@@ -111,7 +111,7 @@ for ech in range(len(ECHTS)):  # For each sample
 
                 start = time.perf_counter()
                 M_angle, Classes, distri = calculangle(
-                    N, smooth_sigma=0.8, tensor_blur=3, eps=1e-12
+                    M_bin, smooth_sigma=3, tensor_blur=3, eps=1e-12
                 )
                 elapsed = time.perf_counter() - start
                 print(f"⏱️ Orientation calculation: {elapsed:.2f} s")
