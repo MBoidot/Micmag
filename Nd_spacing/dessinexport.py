@@ -64,32 +64,41 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     plt.savefig(f"{chePH}-binaire_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
     plt.close()
 
-    # --- Figure 2: processed (DM) image + synthetic legend ---
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5), facecolor="w")
+    # --- Figure 2: processed (DM) image with hemispheric legend below ---
+    fig, ax = plt.subplots(2, 1, figsize=(6, 7), facecolor="w", height_ratios=[4, 1])
 
-    # Left: DM image
-    im = ax[0].imshow(DM, cmap="twilight", vmin=-90, vmax=90)
-    ax[0].axis("off")
+    # --- Mask background (no-angle) pixels ---
+    DM_masked = np.ma.masked_where(DM <= -100, DM)
+    cmap = plt.cm.viridis
+    cmap.set_bad(color="black")  # background now black
+
+    # --- Top: orientation map ---
+    im = ax[0].imshow(DM_masked, cmap=cmap, vmin=-90, vmax=90)
     ax[0].set_title("Local orientation (DM)")
-    fig.colorbar(im, ax=ax[0], label="Angle (°)")
+    ax[0].axis("off")
+    fig.colorbar(im, ax=ax[0], orientation="vertical", label="Angle (°)")
 
-    # Right: synthetic circular legend using dummy angle field
-    res = 200  # resolution of the legend
-    y, x = np.meshgrid(np.linspace(-1, 1, res), np.linspace(-1, 1, res))
+    # --- Bottom: horizontal (upper) semicircle legend ---
+    res = 300
+    radius = 1.0
+    y, x = np.meshgrid(np.linspace(0, 1, res), np.linspace(-1, 1, 2 * res))
     r = np.sqrt(x**2 + y**2)
-    mask = r <= 1.0
-    theta = np.degrees(np.arctan2(y, x))  # -180..180
-    theta = np.clip(theta, -90, 90)  # match DM range
+    theta = np.degrees(np.arctan2(y, x))  # -90° (left) to +90° (right)
+    theta = np.clip(theta, -90, 90)
+
+    # Mask outside the half-circle
     legend = np.full_like(theta, np.nan)
+    mask = r <= radius
     legend[mask] = theta[mask]
 
-    ax[1].imshow(legend, cmap="twilight", vmin=-90, vmax=90, origin="lower")
+    ax[1].imshow(
+        legend, cmap="viridis", vmin=-90, vmax=90, origin="lower", aspect="auto"
+    )
     ax[1].axis("off")
-    ax[1].set_title("Angle legend (°)")
-    ax[1].set_aspect("equal")
+    ax[1].set_title("Orientation legend (°)", pad=8)
 
     plt.tight_layout()
-    plt.savefig(f"{chePH}-traite_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
+    plt.savefig(f"{chePH}-traite_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=150)
     plt.close()
 
     # --- Figure 3: distribution curve ---
