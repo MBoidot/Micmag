@@ -42,7 +42,7 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     plt.imshow(N, cmap="gray", interpolation="nearest")
     plt.axis("off")
     plt.tight_layout()
-    plt.savefig(f"{chePH}-binaire_clahe_bgcorrection_adaptive+OC.TIF", dpi=120)
+    plt.savefig(f"{chePH}-binaire_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
     plt.close()
 
     # --- Figure 2: processed (DM) image ---
@@ -50,7 +50,7 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     plt.imshow(DM, cmap="viridis", interpolation="nearest")
     plt.axis("off")
     plt.tight_layout()
-    plt.savefig(f"{chePH}-traite.TIF", dpi=120)
+    plt.savefig(f"{chePH}-traite_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
     plt.close()
 
     # --- Figure 3: distribution curve ---
@@ -60,7 +60,7 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     plt.xlabel("Classes")
     plt.ylabel("Distribution")
     plt.tight_layout()
-    plt.savefig(f"{chePH}-data.TIF", dpi=120)
+    plt.savefig(f"{chePH}-data_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
     plt.close()
 
     # --- Excel export ---

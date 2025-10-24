@@ -67,12 +67,13 @@ for ech in range(len(ECHTS)):  # For each sample
             # Choose processing path
             if "T" not in type_str:  # face views → spacing calculation
                 print("      ⚙️  Running binarisation...")
+
                 M_bin = binarisation(
                     M,
                     clip_limit=2.0,
                     tile_grid_size=(8, 8),
                     blur_kernel=101,
-                    block_size=41,
+                    block_size=51,
                     C=3,
                     kernel_size=2,
                     n_close=1,
@@ -98,7 +99,7 @@ for ech in range(len(ECHTS)):  # For each sample
                     clip_limit=2.0,
                     tile_grid_size=(8, 8),
                     blur_kernel=101,
-                    block_size=41,
+                    block_size=51,
                     C=3,
                     kernel_size=2,
                     n_close=1,
@@ -106,11 +107,11 @@ for ech in range(len(ECHTS)):  # For each sample
                 )
 
                 print("      ⚙️  Running angle calculation...")
-                M_angle = calculangle(M_bin)
-
+                M_angle, Classes, distri = calculangle(M_bin)
+                print("DEBUG M_angle:", type(M_angle), getattr(M_angle, "shape", None))
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(
-                    M_bin, M_angle, None, None, chePH, cheRES, photo
+                    M_bin, M_angle, Classes, distri, chePH, cheRES, photo
                 )  # distribution may not apply
 
 print("\n✅ Image analysis complete. Results saved in the 'Résultats' folder.")
