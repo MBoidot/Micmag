@@ -10,6 +10,7 @@ Python equivalent of MATLAB's ANALYSE_IMAGES.m
 import os
 import numpy as np
 import imageio.v2 as imageio
+import time
 
 # Import configuration and processing modules
 from PARAMETRES import *
@@ -107,7 +108,14 @@ for ech in range(len(ECHTS)):  # For each sample
                 )
 
                 print("      ⚙️  Running angle calculation...")
-                M_angle, Classes, distri = calculangle(M_bin)
+
+                start = time.perf_counter()
+                M_angle, Classes, distri = calculangle(
+                    N, smooth_sigma=0.8, tensor_blur=3, eps=1e-12
+                )
+                elapsed = time.perf_counter() - start
+                print(f"⏱️ Orientation calculation: {elapsed:.2f} s")
+
                 print("DEBUG M_angle:", type(M_angle), getattr(M_angle, "shape", None))
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(

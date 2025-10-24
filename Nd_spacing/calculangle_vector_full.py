@@ -22,7 +22,7 @@ DM contains angles in degrees in range (-90, 90] for pixels where an orientation
 distri is computed exactly as before: per-row mean of 90 - abs(angle) over bright pixels.
 
 
-uning tips
+Tuning tips
 
 smooth_sigma controls pre-smoothing of the input; increase if very noisy.
 
@@ -70,7 +70,7 @@ def calculangle(N, smooth_sigma=None, tensor_blur=None, eps=1e-12):
 
     # default smoothing params
     if smooth_sigma is None:
-        smooth_sigma = max(1.0, max(1.0, envergure / 3.0))
+        smooth_sigma = max(1.0, envergure / 3.0)
     if tensor_blur is None:
         tb = int(2 * envergure + 1)
         tensor_blur = tb if tb % 2 == 1 else tb + 1
