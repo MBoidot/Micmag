@@ -22,7 +22,7 @@ DM contains angles in degrees in range (-90, 90] for pixels where an orientation
 distri is computed exactly as before: per-row mean of 90 - abs(angle) over bright pixels.
 
 
-Tuning tips
+uning tips
 
 smooth_sigma controls pre-smoothing of the input; increase if very noisy.
 
