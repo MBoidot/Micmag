@@ -20,9 +20,11 @@ from prolong_nd import (
     simple_closing,
     multi_angle_closing,
     watershed_and_edge_prolong,
-    orientation_based_prolong,
+    watershed_grains_pro,
 )
 from matplotlib import pyplot as plt
+from skimage import morphology, segmentation, feature
+from scipy import ndimage as ndi
 
 # --------------------------------------------------------------------------
 # --- Main analysis loop ---
@@ -112,32 +114,68 @@ for ech in range(len(ECHTS)):  # For each sample
                 imageio.imwrite(
                     f"{chePH}-prolonged.TIF", (M_bin_prolonged * 255).astype(np.uint8)
                 )
-                plt.imsave(f"{chePH}-watershed_labels.TIFF", labels, cmap="tab20")
+                # --- Prepare binarized variants
+                bin_variants = {
+                    "Binarized": M_bin,
+                    "Closed": M_bin_closed,
+                    "Directional Closing": M_bin_dir,
+                    "Prolonged": M_bin_prolonged,
+                }
 
-                # --- Summary figure with all steps ---
-                fig, axes = plt.subplots(1, 5, figsize=(20, 4))
-                axes = axes.ravel()
+                # Dictionaries to store watershed outputs
+                dil_eroded_masks = {}
+                grain_masks = {}
+                grain_labels_dict = {}
 
-                axes[0].imshow(M, cmap="gray")
-                axes[0].set_title("Original")
+                # --- Run watershed grains on each variant
+                for name, img in bin_variants.items():
+                    mask, labels, dil_eroded = watershed_grains_pro(
+                        img,  # use each variant
+                        pre_dilate_steps=2,
+                        pre_erode_steps=2,
+                        selem_radius=1,
+                        marker_distance=20,
+                        min_grain_size=40,
+                        edge_smooth=0,
+                        return_preprocessed=True,
+                    )
+                    dil_eroded_masks[name] = dil_eroded
+                    grain_masks[name] = mask
+                    grain_labels_dict[name] = labels
 
-                axes[1].imshow(M_bin, cmap="gray")
-                axes[1].set_title("Binarized")
+                # --- Summary figure: 4 rows (original mask, dilated/eroded, grain mask, labels)
+                n_variants = len(bin_variants)
+                fig, axes = plt.subplots(4, n_variants, figsize=(5 * n_variants, 16))
 
-                axes[2].imshow(M_bin_closed, cmap="gray")
-                axes[2].set_title("Closed")
+                # Flatten axes for indexing
+                axes = axes if axes.ndim == 2 else axes.reshape(4, n_variants)
 
-                axes[3].imshow(M_bin_dir, cmap="gray")
-                axes[3].set_title("Directional Closing")
+                # 1️⃣ Top row: original Nd-rich masks
+                for i, name in enumerate(bin_variants.keys()):
+                    axes[0, i].imshow(bin_variants[name], cmap="gray")
+                    axes[0, i].set_title(f"{name} Mask")
+                    axes[0, i].axis("off")
 
-                axes[4].imshow(M_bin_prolonged, cmap="gray")
-                axes[4].set_title("Prolonged (Watershed)")
+                # 2️⃣ Second row: masks after dilation → erosion
+                for i, name in enumerate(bin_variants.keys()):
+                    axes[1, i].imshow(dil_eroded_masks[name], cmap="gray")
+                    axes[1, i].set_title(f"{name} Dilated/Eroded")
+                    axes[1, i].axis("off")
 
-                for ax in axes:
-                    ax.axis("off")
+                # 3️⃣ Third row: grain masks
+                for i, name in enumerate(bin_variants.keys()):
+                    axes[2, i].imshow(grain_masks[name], cmap="gray")
+                    axes[2, i].set_title(f"{name} Grain Mask")
+                    axes[2, i].axis("off")
+
+                # 4️⃣ Bottom row: labeled grains
+                for i, name in enumerate(bin_variants.keys()):
+                    axes[3, i].imshow(grain_labels_dict[name], cmap="tab20")
+                    axes[3, i].set_title(f"{name} Labels")
+                    axes[3, i].axis("off")
 
                 plt.tight_layout()
-                plt.savefig(f"{chePH}-summary.png", dpi=200)
+                plt.savefig(f"{chePH}-mask_dilated_grains_labels.png", dpi=200)
                 plt.close(fig)
 
                 # Select the image used for measurements
@@ -151,6 +189,25 @@ for ech in range(len(ECHTS)):  # For each sample
 
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(M_for_measure, DM, Classes, distri, chePH, cheRES, photo)
+
+                # --- Watershed grains
+                M_grain_mask, grain_labels = watershed_grains_pro(
+                    M_bin,
+                    pre_dilate_steps=2,
+                    pre_erode_steps=1,
+                    selem_radius=1,
+                    marker_distance=5,
+                    min_grain_size=50,
+                    edge_smooth=1,
+                )
+
+                # Save outputs for inspection
+                import imageio
+
+                imageio.imwrite(
+                    f"{chePH}-grains_mask.TIF", (M_grain_mask * 255).astype(np.uint8)
+                )
+                plt.imsave(f"{chePH}-grains_labels.TIFF", grain_labels, cmap="tab20")
 
             else:  # cross-sections → angle calculation
 
