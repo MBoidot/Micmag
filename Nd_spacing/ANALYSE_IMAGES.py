@@ -132,7 +132,7 @@ for ech in range(len(ECHTS)):  # For each sample
                     mask, labels, dil_eroded = watershed_grains_pro(
                         img,  # use each variant
                         pre_dilate_steps=2,
-                        pre_erode_steps=2,
+                        pre_erode_steps=1,
                         selem_radius=1,
                         marker_distance=20,
                         min_grain_size=40,
