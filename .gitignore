@@ -52,6 +52,7 @@ Thumbs.db
 *.tiff
 *.TIF
 *.TIFF
+*.png
 
 # Specific generated images
 *-binaire.TIF

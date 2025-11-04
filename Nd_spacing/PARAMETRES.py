@@ -23,7 +23,7 @@ manip = f"SC{nomanip}"  # 'SC' or 'VAC' or another prefix
 ECHTS = "AB"  # Sample identifiers (e.g., 'ABC' for three ribbons A, B, C)
 
 TYPES = "RRRRRARAAAAATR_"  # Each type is 3 letters, concatenated one after another
-NB_PHOTOS = [1, 1, 1, 1, 2]  # Per type, 5 values per sample
+NB_PHOTOS = [3, 3, 3, 3, 6]  # Per type, 5 values per sample
 nb_identiques = 1  # If all samples have same number of photos → 1, else 0
 epaisseurs = [155, 185]  # One value per sample (µm)
 rmax = 15  # Exploration radius in µm (standard: 5)

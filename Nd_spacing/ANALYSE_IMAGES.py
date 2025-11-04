@@ -8,7 +8,7 @@ Python equivalent of MATLAB's ANALYSE_IMAGES.m
 """
 import os
 import numpy as np
-import imageio.v2 as imageio
+import imageio
 import time
 from PARAMETRES import *
 from binarisation import binarisation
@@ -30,6 +30,8 @@ from scipy import ndimage as ndi
 # --- Main analysis loop ---
 # --------------------------------------------------------------------------
 step = 1  # adjust as needed
+
+global_start = time.perf_counter()
 print("🟢 Starting image analysis...")
 
 for ech in range(len(ECHTS)):  # For each sample
@@ -63,7 +65,7 @@ for ech in range(len(ECHTS)):  # For each sample
             print(f"    🖼️  Processing photo {fich}/{nbrephotos}: {img_path}")
 
             # Read and normalize image
-            M = imageio.imread(img_path).astype(np.float64) / 255.0
+            M = imageio.v2.imread(img_path).astype(np.float64) / 255.0
             hauteur, largeur = M.shape[:2]
 
             # For quick tests increase step, for precision keep at 1
@@ -232,11 +234,11 @@ for ech in range(len(ECHTS)):  # For each sample
                 )
                 elapsed = time.perf_counter() - start
                 print(f"⏱️ Orientation calculation: {elapsed:.2f} s")
-
-                print("DEBUG M_angle:", type(M_angle), getattr(M_angle, "shape", None))
                 print(f"      💾 Exporting results to {cheRES}")
                 dessinexport(
                     M_bin, M_angle, Classes, distri, chePH, cheRES, photo
                 )  # distribution may not apply
 
+global_elapsed = time.perf_counter() - global_start
+print(f"\n⏱️ Total elapsed time: {global_elapsed:.2f} s")
 print("\n✅ Image analysis complete. Results saved in the 'Résultats' folder.")
