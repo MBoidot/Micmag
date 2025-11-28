@@ -1,0 +1,3 @@
+[submodule "external/segmenteverygrain"]
+	path = external/segmenteverygrain
+	url = https://github.com/zsylvester/segmenteverygrain.git
