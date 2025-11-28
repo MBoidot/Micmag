@@ -68,6 +68,7 @@ data/
 temp/
 tmp/
 original_images and calculations from OT/
+Segmentation_ilastik/
 
 # ============================================================
 # Logs and reports
