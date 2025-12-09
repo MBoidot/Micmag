@@ -1,0 +1,2 @@
+External/segmenteverygrain/models/seg_model.keras filter=lfs diff=lfs merge=lfs -text
+*.png !text -filter -merge -diff
