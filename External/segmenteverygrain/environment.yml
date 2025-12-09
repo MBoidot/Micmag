@@ -1,0 +1,29 @@
+name: segmenteverygrain
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.9
+  - numpy
+  - matplotlib
+  - pyqt
+  - pandas
+  - jupyterlab
+  - scipy
+  - scikit-image
+  - scikit-learn
+  - tqdm
+  - networkx
+  - shapely
+  - pip
+  - pip:
+    - pillow
+    - rasterio
+    - opencv-python
+    - rtree
+    - tensorflow
+    - torch
+    - torchvision
+    - segment-anything
+    - segmenteverygrain

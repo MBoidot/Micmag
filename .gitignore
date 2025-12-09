@@ -47,6 +47,10 @@ Thumbs.db
 *.xlsx
 *.csv
 
+# SAM checkpoints (very large!)
+*.pth
+*.keras
+
 # Ignore all TIFF images (any case)
 *.tif
 *.tiff
