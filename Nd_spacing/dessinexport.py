@@ -12,6 +12,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+from tkinter import Tk, filedialog, messagebox
 
 
 def plot_circular_legend(cmap="twilight", radius=100, bg_color=(1, 1, 1)):
@@ -117,3 +118,67 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     print(f"   ├─ {chePH}-traite.TIF")
     print(f"   ├─ {chePH}-data.TIF")
     print(f"   └─ {cheRES}")
+
+
+def select_and_plot_files(results_dir):
+    """
+    Open a file selection dialog to choose XLSX files and plot their data.
+
+    Args:
+        results_dir (str): Path to the directory containing the XLSX files.
+    """
+    # Initialize Tkinter
+    root = Tk()
+    root.withdraw()  # Hide the main window
+
+    # Ask the user to select files
+    file_paths = filedialog.askopenfilenames(
+        title="Select XLSX files to plot",
+        initialdir=results_dir,
+        filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+    )
+
+    if not file_paths:
+        messagebox.showinfo("Info", "No files selected. Plotting cancelled.")
+        return
+
+    # Determine the type of data based on the first selected file
+    first_file = file_paths[0]
+    df = pd.read_excel(first_file)
+
+    # Check if the file contains distance data or angle data
+    if "Distance" in df.columns:
+        data_type = "distance"
+        x_col = "Distance"
+        y_col = "Frequency"
+        title = "Superimposed Distance Distribution"
+    elif "Angle" in df.columns:
+        data_type = "angle"
+        x_col = "Angle"
+        y_col = "Frequency"
+        title = "Superimposed Angle Distribution"
+    else:
+        messagebox.showinfo(
+            "Info", "Could not determine the type of data in the selected files."
+        )
+        return
+
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+
+    for file in file_paths:
+        df = pd.read_excel(file)
+        plt.plot(df[x_col], df[y_col], label=os.path.basename(file))
+
+    plt.title(title)
+    plt.xlabel(x_col)
+    plt.ylabel(y_col)
+    plt.legend()
+    plt.grid(True)
+
+    # Save the plot
+    plot_filename = os.path.join(results_dir, "superimposed_plot.png")
+    plt.savefig(plot_filename)
+    messagebox.showinfo("Info", f"Superimposed plot saved as: {plot_filename}")
+
+    plt.show()

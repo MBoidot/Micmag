@@ -23,9 +23,9 @@ manip = f"SC{nomanip}"  # 'SC' or 'VAC' or another prefix
 ECHTS = "A"  # Sample identifiers (e.g., 'ABC' for three ribbons A, B, C)
 
 TYPES = "RRRRRARAAAAATR_"  # Each type is 3 letters, concatenated one after another
-NB_PHOTOS = [0, 0, 0, 0, 11]  # Per type, 5 values per sample
+NB_PHOTOS = [1, 1, 1, 1, 1]  # Per type, 5 values per sample
 nb_identiques = 1  # If all samples have same number of photos → 1, else 0
-epaisseurs = [155, 185]  # One value per sample (µm)
+epaisseurs = [155]  # One value per sample (µm)
 rmax = 15  # Exploration radius in µm (standard: 5)
 dmaxfigures = 25  # Standard: 2*dmax, can be smaller for RASSEMBLE
 bpf = np.array(
