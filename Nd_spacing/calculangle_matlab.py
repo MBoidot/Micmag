@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-calculangle.py
+calculangle_matlab.py
 --------------
 Python translation of MATLAB's calculangle.m
 
@@ -12,7 +12,7 @@ import numpy as np
 from PARAMETRES import pas, nbangles, fl, lex, envergure
 
 
-def calculangle(N):
+def calculangle_matlab(N):
     """
     Compute dominant local angle map (A) and angle distribution along depth.
 
