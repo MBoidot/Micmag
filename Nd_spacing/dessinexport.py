@@ -3,11 +3,9 @@
 dessinexport.py
 ---------------
 Python translation of MATLAB's dessinexport.m
-
 Generates visual outputs and exports data to XLS for each analyzed image,
 including a circular legend for orientation angles.
 """
-
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,7 +24,6 @@ def plot_circular_legend(cmap="twilight", radius=100, bg_color=(1, 1, 1)):
     theta_deg = np.clip(np.degrees(theta), -90, 90)
     norm = (theta_deg + 90) / 180.0
     mask_circle = r <= radius
-
     img = np.ones((2 * radius, 2 * radius, 3), dtype=np.float32)  # white background
     cmap_func = plt.get_cmap(cmap)
     img[mask_circle] = cmap_func(norm[mask_circle])[:, :3]
@@ -36,7 +33,6 @@ def plot_circular_legend(cmap="twilight", radius=100, bg_color=(1, 1, 1)):
 def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     """
     Save visualizations and export data results for one analyzed image.
-
     Parameters
     ----------
     N : ndarray
@@ -56,7 +52,6 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     """
     # Ensure directory exists
     os.makedirs(os.path.dirname(chePH), exist_ok=True)
-
     # --- Figure 1: binarized image ---
     plt.figure(figsize=(6, 5), facecolor="w")
     plt.imshow(N, cmap="gray", interpolation="nearest")
@@ -64,19 +59,15 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     plt.tight_layout()
     plt.savefig(f"{chePH}-binaire_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
     plt.close()
-
     # --- Figure 2: processed (DM) image with hemispheric legend below ---
     fig, ax = plt.subplots(2, 1, figsize=(6, 7), facecolor="w", height_ratios=[4, 1])
-
     # --- Use masked DM directly ---
     cmap = plt.cm.viridis
     cmap.set_bad(color="black")  # masked regions → black
-
     # --- Top: orientation map ---
     im = ax[0].imshow(DM, cmap=cmap, vmin=-90, vmax=90)
     ax[0].set_title("Local orientation (DM)")
     ax[0].axis("off")
-
     # --- Bottom: hemispheric legend ---
     res = 300
     radius = 1.0
@@ -84,21 +75,17 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     r = np.sqrt(x**2 + y**2)
     theta = np.degrees(np.arctan2(x, y))
     theta = np.clip(theta, -90, 90)
-
     legend = np.full_like(theta, np.nan)
     mask = r <= radius
     legend[mask] = theta[mask]
-
     ax[1].imshow(
         legend, cmap="viridis", vmin=-90, vmax=90, origin="lower", aspect="equal"
     )
     ax[1].axis("off")
     ax[1].set_title("Orientation legend (°)", pad=8)
-
     plt.tight_layout()
     plt.savefig(f"{chePH}-traite_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=150)
     plt.close()
-
     # --- Figure 3: distribution curve ---
     plt.figure(figsize=(6, 5), facecolor="w")
     plt.plot(Classes, distri, linewidth=1.5)
@@ -108,11 +95,9 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     plt.tight_layout()
     plt.savefig(f"{chePH}-data_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
     plt.close()
-
     # --- Excel export ---
     df = pd.DataFrame({"Classes": Classes.flatten(), "distri": distri.flatten()})
     df.to_excel(cheRES, index=False)
-
     print(f"✅ Exported: {photo}")
     print(f"   ├─ {chePH}-binaire.TIF")
     print(f"   ├─ {chePH}-traite.TIF")
@@ -139,7 +124,6 @@ def select_and_plot_files(results_dir):
     )
 
     if not file_paths:
-        messagebox.showinfo("Info", "No files selected. Plotting cancelled.")
         return
 
     # Determine the type of data based on the first selected file
@@ -147,16 +131,10 @@ def select_and_plot_files(results_dir):
     df = pd.read_excel(first_file)
 
     # Check if the file contains distance data or angle data
-    if "Distance" in df.columns:
-        data_type = "distance"
-        x_col = "Distance"
-        y_col = "Frequency"
-        title = "Superimposed Distance Distribution"
-    elif "Angle" in df.columns:
-        data_type = "angle"
-        x_col = "Angle"
-        y_col = "Frequency"
-        title = "Superimposed Angle Distribution"
+    if "Classes" in df.columns and "distri" in df.columns:
+        x_col = "Classes"
+        y_col = "distri"
+        title = "Superimposed Distribution"
     else:
         messagebox.showinfo(
             "Info", "Could not determine the type of data in the selected files."

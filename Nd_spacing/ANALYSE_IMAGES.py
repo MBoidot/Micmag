@@ -9,8 +9,6 @@ import os
 import numpy as np
 import imageio
 import time
-import tkinter as tk
-from tkinter import messagebox
 from PARAMETRES import *
 from binarisation import binarisation
 from distance import distance
@@ -26,6 +24,8 @@ from prolong_nd import (
 from matplotlib import pyplot as plt
 from skimage import morphology, segmentation, feature
 from scipy import ndimage as ndi
+import tkinter as tk
+from tkinter import filedialog
 
 # --------------------------------------------------------------------------
 # --- Main analysis loop ---
@@ -207,14 +207,12 @@ for ech in range(len(ECHTS)):  # For each sample
 print("\n📊 Post-processing: Select and plot superimposed data")
 print("--------------------------------------------------")
 
-# Ask the user if they want to plot the results
+# Open a file selection dialog to choose XLSX files to plot
 root = tk.Tk()
 root.withdraw()  # Hide the main window
 
-response = messagebox.askyesno("Plot Results", "Do you want to plot the results now?")
-
-if response:
-    select_and_plot_files(os.path.join(cheM, "Résultats"))
+results_dir = os.path.join(cheM, "Résultats")
+select_and_plot_files(results_dir)
 
 global_elapsed = time.perf_counter() - global_start
 print(f"\n⏱️ Total elapsed time: {global_elapsed:.2f} s")
