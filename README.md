@@ -64,3 +64,7 @@ Implementation quirks & pointers
 - The binarisation routine applies CLAHE then optional Gaussian background estimation before thresholding.
 - [`distribution`](Nd_spacing/distribution.py) computes histogram class boundaries consistent with the MATLAB original.
 - If you want to inspect intermediate outputs, [ANALYSE_IMAGES.py](Nd_spacing/ANALYSE_IMAGES.py) writes masks and labeled images (TIFF) for debugging.
+
+# external folder
+
+[text](https://github.com/zsylvester/segmenteverygrain)

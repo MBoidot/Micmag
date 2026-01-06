@@ -23,7 +23,7 @@ manip = f"SC{nomanip}"  # 'SC' or 'VAC' or another prefix
 ECHTS = "A"  # Sample identifiers (e.g., 'ABC' for three ribbons A, B, C)
 
 TYPES = "RRRRRARAAAAATR_"  # Each type is 3 letters, concatenated one after another
-NB_PHOTOS = [0, 0, 0, 0, 1]  # Per type, 5 values per sample
+NB_PHOTOS = [1, 1, 1, 1, 1]  # Per type, 5 values per sample
 nb_identiques = 1  # If all samples have same number of photos → 1, else 0
 epaisseurs = [155]  # One value per sample (µm)
 rmax = 15  # Exploration radius in µm (standard: 5)
@@ -36,7 +36,7 @@ bpf = np.array(
 # PATHS
 # --------------------------------------------------------------------------
 
-che = r"C:/Users/MB232649/Documents/M.Boidot Local/Informatique/Projets-info/2025-Nd_Rich_Spacing/Nd_spacing/"
+che = r"C:/Users/MB232649/Documents/M.Boidot Local/Informatique/Projets-info/2025-Nd_Rich_Spacing/Nd_spacing/Data/Casts/"
 cheM = os.path.join(
     che, manip, ""
 )  # Folder for the current manipulation (must contain 'RESULTATS' subfolder)
