@@ -52,14 +52,26 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     """
     # Ensure directory exists
     os.makedirs(os.path.dirname(chePH), exist_ok=True)
-    # --- Figure 1: binarized image ---
+
+    # --- Figure 1: Original binary image ---
     plt.figure(figsize=(6, 5), facecolor="w")
     plt.imshow(N, cmap="gray", interpolation="nearest")
+    plt.title("Original Binary Image")
     plt.axis("off")
     plt.tight_layout()
-    plt.savefig(f"{chePH}-binaire_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
+    plt.savefig(f"{chePH}-original_binary.TIF", dpi=120)
     plt.close()
-    # --- Figure 2: processed (DM) image with hemispheric legend below ---
+
+    # --- Figure 2: Processed image (after smoothing) ---
+    plt.figure(figsize=(6, 5), facecolor="w")
+    plt.imshow(DM, cmap="gray", interpolation="nearest")
+    plt.title("Processed Image (After Smoothing)")
+    plt.axis("off")
+    plt.tight_layout()
+    plt.savefig(f"{chePH}-processed_image.TIF", dpi=120)
+    plt.close()
+
+    # --- Figure 3: Angle map ---
     fig, ax = plt.subplots(2, 1, figsize=(6, 7), facecolor="w", height_ratios=[4, 1])
     # --- Use masked DM directly ---
     cmap = plt.cm.viridis
@@ -84,23 +96,26 @@ def dessinexport(N, DM, Classes, distri, chePH, cheRES, photo):
     ax[1].axis("off")
     ax[1].set_title("Orientation legend (°)", pad=8)
     plt.tight_layout()
-    plt.savefig(f"{chePH}-traite_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=150)
+    plt.savefig(f"{chePH}-angle_map.TIF", dpi=150)
     plt.close()
-    # --- Figure 3: distribution curve ---
+
+    # --- Figure 4: distribution curve ---
     plt.figure(figsize=(6, 5), facecolor="w")
     plt.plot(Classes, distri, linewidth=1.5)
     plt.title(photo)
     plt.xlabel("Classes")
     plt.ylabel("Distribution")
     plt.tight_layout()
-    plt.savefig(f"{chePH}-data_clahe+BGcorr+adaptive thresholding+OC.TIF", dpi=120)
+    plt.savefig(f"{chePH}-data.TIF", dpi=120)
     plt.close()
+
     # --- Excel export ---
     df = pd.DataFrame({"Classes": Classes.flatten(), "distri": distri.flatten()})
     df.to_excel(cheRES, index=False)
     print(f"✅ Exported: {photo}")
-    print(f"   ├─ {chePH}-binaire.TIF")
-    print(f"   ├─ {chePH}-traite.TIF")
+    print(f"   ├─ {chePH}-original_binary.TIF")
+    print(f"   ├─ {chePH}-processed_image.TIF")
+    print(f"   ├─ {chePH}-angle_map.TIF")
     print(f"   ├─ {chePH}-data.TIF")
     print(f"   └─ {cheRES}")
 
