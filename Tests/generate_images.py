@@ -1,79 +1,141 @@
 import numpy as np
-import matplotlib.pyplot as plt
+from scipy.spatial import Voronoi
+from matplotlib.path import Path
 from PIL import Image
 import os
 
 
-def generate_microstructure(width, height, grain_size, noise_level):
+def generate_colonies(width, height, n_colonies, angle_deg):
     """
-    Génère une microstructure de matériau en cours de solidification.
-
-    :param width: Largeur de l'image
-    :param height: Hauteur de l'image
-    :param grain_size: Taille moyenne des grains
-    :param noise_level: Niveau de bruit ajouté à l'image
-    :return: Image en niveau de gris de la microstructure
+    Generate parallel colony bands.
     """
-    # Création d'une grille de points de départ pour les grains
-    x = np.arange(0, width, grain_size)
-    y = np.arange(0, height, grain_size)
-    xx, yy = np.meshgrid(x, y)
+    theta = np.deg2rad(angle_deg)
+    direction = np.array([np.cos(theta), np.sin(theta)])
 
-    # Initialisation de l'image avec des valeurs aléatoires
-    image = np.random.rand(height, width) * 255
+    x, y = np.meshgrid(np.arange(width), np.arange(height))
+    coords = np.stack((x, y), axis=-1)
 
-    # Création des grains
-    for i in range(len(xx)):
-        for j in range(len(yy)):
-            # Centre du grain
-            cx, cy = xx[i, j], yy[i, j]
+    projection = coords @ direction
+    bins = np.linspace(projection.min(), projection.max(), n_colonies + 1)
 
-            # Taille aléatoire du grain
-            size = grain_size * (0.5 + np.random.rand())
+    colony_map = np.digitize(projection, bins) - 1
+    colony_map = np.clip(colony_map, 0, n_colonies - 1)
 
-            # Création d'un cercle autour du centre du grain
-            for k in range(height):
-                for l in range(width):
-                    distance = np.sqrt((k - cy) ** 2 + (l - cx) ** 2)
-                    if distance < size:
-                        # Valeur du pixel en fonction de la distance au centre
-                        value = 255 - distance * (255 / size)
-                        image[k, l] = min(image[k, l], value)
-
-    # Ajout de bruit
-    image = image + noise_level * np.random.randn(height, width)
-    image = np.clip(image, 0, 255)
-
-    return image.astype(np.uint8)
+    return colony_map
 
 
-def save_images(
-    num_images, output_dir, width=512, height=512, grain_size=50, noise_level=10
+def anisotropic_transform(points, angle_deg, aspect_ratio):
+    """
+    Stretch space along growth direction.
+    """
+    theta = np.deg2rad(angle_deg)
+    R = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+    S = np.array([[aspect_ratio, 0], [0, 1]])
+
+    return points @ (R @ S @ R.T)
+
+
+def generate_directional_grains(
+    width,
+    height,
+    colony_map,
+    seeds_per_colony=40,
+    base_angle=90,
+    angle_jitter=5,
+    aspect_ratio=3.0,
 ):
-    """
-    Génère et sauvegarde un certain nombre d'images de microstructures.
+    labels = np.zeros((height, width), dtype=np.int32)
+    grain_id = 1
 
-    :param num_images: Nombre d'images à générer
-    :param output_dir: Répertoire de sortie pour les images
-    :param width: Largeur de l'image
-    :param height: Hauteur de l'image
-    :param grain_size: Taille moyenne des grains
-    :param noise_level: Niveau de bruit ajouté à l'image
-    """
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    for colony in np.unique(colony_map):
+        mask = colony_map == colony
+        ys, xs = np.where(mask)
 
-    for i in range(num_images):
-        microstructure = generate_microstructure(width, height, grain_size, noise_level)
-        image = Image.fromarray(microstructure)
-        image.save(os.path.join(output_dir, f"microstructure_{i}.png"))
+        if len(xs) < seeds_per_colony:
+            continue
+
+        idx = np.random.choice(len(xs), seeds_per_colony, replace=False)
+        points = np.column_stack((xs[idx], ys[idx]))
+
+        angle = base_angle + np.random.uniform(-angle_jitter, angle_jitter)
+
+        warped_points = anisotropic_transform(points, angle, aspect_ratio)
+        vor = Voronoi(warped_points)
+
+        coords = np.column_stack(np.where(mask))
+        coords_xy = np.column_stack((coords[:, 1], coords[:, 0]))
+        warped_coords = anisotropic_transform(coords_xy, angle, aspect_ratio)
+
+        for i, region_idx in enumerate(vor.point_region):
+            region = vor.regions[region_idx]
+            if -1 in region or len(region) == 0:
+                continue
+
+            polygon = vor.vertices[region]
+            path = Path(polygon)
+            inside = path.contains_points(warped_coords)
+
+            pix = coords[inside]
+            labels[pix[:, 0], pix[:, 1]] = grain_id
+            grain_id += 1
+
+    return labels
 
 
-# Exemple d'utilisation
-num_images = 10
-output_dir = "microstructures"
-width, height = 512, 512
-grain_size = 50
-noise_level = 10
+def detect_grain_boundaries(labels):
+    gb = np.zeros_like(labels, dtype=bool)
+    gb[:-1, :] |= labels[:-1, :] != labels[1:, :]
+    gb[:, :-1] |= labels[:, :-1] != labels[:, 1:]
+    return gb
 
-save_images(num_images, output_dir, width, height, grain_size, noise_level)
+
+def render_microstructure(labels, gb_mask, grain_grey=120, nd_white=255):
+    img = np.full(labels.shape, grain_grey, dtype=np.uint8)
+    img[gb_mask] = nd_white
+    return img
+
+
+def generate_dendritic_colonies(
+    width=512,
+    height=512,
+    n_colonies=6,
+    base_angle=90,
+    seeds_per_colony=40,
+    angle_jitter=5,
+    aspect_ratio=3.0,
+):
+    colony_map = generate_colonies(width, height, n_colonies, base_angle)
+
+    labels = generate_directional_grains(
+        width,
+        height,
+        colony_map,
+        seeds_per_colony=seeds_per_colony,
+        base_angle=base_angle,
+        angle_jitter=angle_jitter,
+        aspect_ratio=aspect_ratio,
+    )
+
+    gb = detect_grain_boundaries(labels)
+    img = render_microstructure(labels, gb)
+
+    return img, labels, gb, colony_map
+
+
+if __name__ == "__main__":
+
+    img, labels, gb, colonies = generate_dendritic_colonies(
+        width=512,
+        height=512,
+        n_colonies=6,
+        base_angle=0,
+        seeds_per_colony=45,
+        angle_jitter=3,
+        aspect_ratio=4.0,
+    )
+
+    Image.fromarray(img).save("debug_dendritic_colonies.png")
+    print("Baseline dendritic colonies generated.")
+Image.fromarray((colonies / colonies.max() * 255).astype(np.uint8)).save("colonies.png")
+Image.fromarray((labels > 0).astype(np.uint8) * 255).save("grains.png")
+Image.fromarray(gb.astype(np.uint8) * 255).save("gb.png")
