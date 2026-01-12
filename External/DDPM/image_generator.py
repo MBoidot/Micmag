@@ -15,7 +15,6 @@ import os
 import copy
 from pathlib import Path
 
-
 # Select process parameters from valid enteries for each parameter below
 # Process Parameter Selction
 # Cast geometry {valid enteries: "cylinder" or "preform"}
@@ -23,13 +22,13 @@ cast_geometry = "cylinder"
 # Metallography sample location {valid enteries: "tall", "web", or "short"}
 metallography_location = "web"
 # Casting cooling rate {valid enteries: "1.5", "6", or "10.4"}
-casting_cooling_rate = "6"
+casting_cooling_rate = "10.4"
 # Soaking process {valid enteries: "normal", "1.5h", or "2h"}
 soaking_process = "normal"
 # Heat treatment {valid enteries: "none" or "homogenization"}
-heat_treatment = "none"
+heat_treatment = "homogenization"
 # Forging temperature {valid enteries: "250", "300", or "350"}
-forging_temperature = "350"
+forging_temperature = "250"
 # Image magnification {valid enteries: "100", "500", "1000", "1500", "2000", or "3000"}
 magnification = "1000"
 
@@ -61,7 +60,6 @@ ht_dict = {"none": 0, "homogenization": 1}
 ft_dict = {"250": 0, "300": 1, "350": 2}
 mag_dict = {"100": 0, "500": 1, "1000": 2, "1500": 3, "2000": 4, "3000": 5}
 
-
 reverse_transforms = transforms.Compose(
     [
         transforms.Lambda(lambda t: (t + 1) / 2),
@@ -70,8 +68,6 @@ reverse_transforms = transforms.Compose(
 )
 
 
-# ---
-# fig = plt.figure(figsize = (100,100))
 def show_images(images, index, label):
     ax = fig.add_subplot(21, 1, index + 1, xticks=[], yticks=[])
     plt.gca().set_title(label)
@@ -81,10 +77,7 @@ def show_images(images, index, label):
 
 
 def show_grids(images):
-
     fig = plt.figure(figsize=(6.61, 6.61))
-    # fig = plt.figure()
-    # fig.set_dpi(100)
     grid = ImageGrid(fig, 111, nrows_ncols=(1, 1), axes_pad=0.5)
     plt.axis("off")
     j = 0
@@ -92,12 +85,6 @@ def show_grids(images):
         ax.imshow(im, cmap="gray")
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
-        # ax.title.set_text(labels_title[j])
-        # ax.text(0.5, 0.5, 'synthesized \n ©Azqadan et al. 2023', transform=ax.transAxes,
-        # fontsize=100, color='white', alpha=0.3,
-        # ha='center', va='center', rotation=30)
-        # ax.title.set_size(28)
-        # fig.gca().set_title(labelt[i])
         j += 1
 
     plt.show()
@@ -121,7 +108,7 @@ def load_model(address):
 
 class Diffusion:
     def __init__(
-        self, noise_steps=100, beta_start=1e-4, beta_end=0.02, img_size=image_size
+        self, noise_steps=1000, beta_start=1e-4, beta_end=0.02, img_size=image_size
     ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
@@ -455,12 +442,9 @@ ema_model = UNet_conditional(num_classes=num_classes).to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 diffusion = Diffusion(img_size=image_size)
 
-
 CHECKPOINT_PATH = Path(r"C:\Users\MB232649\Desktop\All_CDDM_HR_Cat_6.pth.tar")
 print("Checkpoint exists:", CHECKPOINT_PATH.exists())
-
 load_model(CHECKPOINT_PATH)
-
 
 with torch.no_grad():
     t_shp = torch.tensor([shp_dict[cast_geometry]])
@@ -493,5 +477,4 @@ with torch.no_grad():
         cfg_scale=0,
     )
     ema_sampled_images = reverse_transforms(ema_sampled_images)
-    # show_grids(sampled_images, test_labels,  e, label_dict)
     show_grids(ema_sampled_images)
