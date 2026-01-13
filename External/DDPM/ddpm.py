@@ -39,6 +39,7 @@ num_classes = 114
 
 # Define paths
 current_dir = os.getcwd()
+whole_dir = str(current_dir) + "\Training\Cropped_images"
 training_data_dir = os.path.join(current_dir, "Training", "training_data")
 cropped_images_dir = os.path.join(current_dir, "Training", "Cropped_images")
 

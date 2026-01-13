@@ -73,6 +73,8 @@ temp/
 tmp/
 original_images and calculations from OT/
 Segmentation_ilastik/
+external/DDPM/training_data
+external/DDPM/cropped_images
 
 # ============================================================
 # Logs and reports
@@ -100,4 +102,5 @@ Savoir faire Nd Rich Spacing.pptx
 # --------------------------
 
 external/**/.git
+
 
