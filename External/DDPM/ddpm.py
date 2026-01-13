@@ -36,55 +36,6 @@ magnifications = 6
 embedding_dim = 100
 num_classes = 114
 
-
-# Define paths
-current_dir = os.getcwd()
-whole_dir = str(current_dir) + "\Training\Cropped_images"
-training_data_dir = os.path.join(current_dir, "Training", "training_data")
-cropped_images_dir = os.path.join(current_dir, "Training", "Cropped_images")
-
-# Create the cropped_images directory if it doesn't exist
-os.makedirs(cropped_images_dir, exist_ok=True)
-
-
-# Define the center crop transform
-class CenterCrop(object):
-    def __init__(self, size):
-        self.size = size
-
-    def __call__(self, img):
-        # Get the dimensions of the image
-        _, height, width = img.shape
-        # Calculate the starting coordinates for the crop
-        start_h = (height - self.size) // 2
-        start_w = (width - self.size) // 2
-        # Perform the crop
-        img = img[:, start_h : start_h + self.size, start_w : start_w + self.size]
-        return img
-
-
-# Define the whole transform with center crop
-whole_transform = transforms.Compose(
-    [
-        transforms.ToTensor(),
-        transforms.Grayscale(),
-        CenterCrop(512),
-        transforms.Lambda(lambda t: (t * 2) - 1),
-    ]
-)
-
-# Load the dataset and apply the transform
-train_dataset = datasets.ImageFolder(training_data_dir, transform=whole_transform)
-
-# Save the cropped images to the cropped_images subfolder
-for i, (images, labels) in enumerate(train_dataset):
-    # Save the cropped image
-    image_path = os.path.join(cropped_images_dir, f"image_{i}_{labels}.png")
-    torchvision.utils.save_image(images, image_path)
-
-# Define the data loader
-
-
 # fmt: off
 class_table = torch.tensor([[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
          0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
@@ -162,9 +113,53 @@ label_dict = {
     111: 'PS18-0500',112: 'PS18-1000',113: 'PS18-2000'
 }
 
-# fmt: on
 
-train_dataset = datasets.ImageFolder(whole_dir, transform=whole_transform)
+# fmt: on
+# Define the center crop transform
+class CenterCrop(object):
+    def __init__(self, size):
+        self.size = size
+
+    def __call__(self, img):
+        # Get the dimensions of the image
+        _, height, width = img.shape
+        # Calculate the starting coordinates for the crop
+        start_h = (height - self.size) // 2
+        start_w = (width - self.size) // 2
+        # Perform the crop
+        img = img[:, start_h : start_h + self.size, start_w : start_w + self.size]
+        return img
+
+
+# Define paths
+current_dir = os.getcwd()
+whole_dir = str(current_dir) + "\Training\Cropped_images"
+training_data_dir = os.path.join(current_dir, "Training", "training_data")
+cropped_images_dir = os.path.join(current_dir, "Training", "Cropped_images")
+
+# Create the cropped_images directory if it doesn't exist
+os.makedirs(cropped_images_dir, exist_ok=True)
+
+
+# Define the whole transform with center crop
+whole_transform = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Grayscale(),
+        CenterCrop(512),
+        transforms.Lambda(lambda t: (t * 2) - 1),
+    ]
+)
+
+# Load the dataset and apply the transform
+train_dataset = datasets.ImageFolder(training_data_dir, transform=whole_transform)
+
+# Save the cropped images to the cropped_images subfolder
+for i, (images, labels) in enumerate(train_dataset):
+    # Save the cropped image
+    image_path = os.path.join(cropped_images_dir, f"image_{i}_{labels}.png")
+    torchvision.utils.save_image(images, image_path)
+
 aug_transform = transforms.Compose(
     [
         transforms.RandomHorizontalFlip(p=0.5),
