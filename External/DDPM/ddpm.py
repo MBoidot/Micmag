@@ -13,8 +13,8 @@ from torch.distributions import uniform
 from mpl_toolkits.axes_grid1 import ImageGrid
 import os
 import copy
-import utils
-import modules
+from utils import *
+from modules import *
 
 batch_size = 2
 n_sampled_images = 4
@@ -253,6 +253,7 @@ l = len(train_loader)
 ema = EMA(0.995)
 ema_model = copy.deepcopy(model).eval().requires_grad_(False)
 
+# here a window pop upto browse for the model could be implemented
 load_dir = str(current_dir) + "/All_CDDM_HR_Cat_V_5.pth.tar"
 load_model(load_dir)
 
