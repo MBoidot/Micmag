@@ -76,6 +76,9 @@ Segmentation_ilastik/
 external/DDPM/Training/training_data/*
 external/DDPM/Training/cropped_images/*
 
+!external/DDPM/Training/training_data/.gitkeep
+!external/DDPM/Training/cropped_images/.gitkeep
+
 # ============================================================
 # Logs and reports
 # ============================================================
