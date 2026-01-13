@@ -16,15 +16,11 @@ import copy
 import utils
 import modules
 
-current_dir = os.getcwd()
-whole_dir = str(current_dir) + "/All-Dataset/Whole Cropped/"
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 batch_size = 2
 n_sampled_images = 4
 n_epoch = 400
 n_ax = int(n_epoch / 20)
-total_loss_min = np.Inf
+total_loss_min = np.inf
 image_shape = (1, 512, 512)
 image_size = 512
 image_dim = int(np.prod(image_shape))
@@ -39,6 +35,54 @@ heat_treatments = 2
 magnifications = 6
 embedding_dim = 100
 num_classes = 114
+
+
+# Define paths
+current_dir = os.getcwd()
+training_data_dir = os.path.join(current_dir, "Training", "training_data")
+cropped_images_dir = os.path.join(current_dir, "Training", "Cropped_images")
+
+# Create the cropped_images directory if it doesn't exist
+os.makedirs(cropped_images_dir, exist_ok=True)
+
+
+# Define the center crop transform
+class CenterCrop(object):
+    def __init__(self, size):
+        self.size = size
+
+    def __call__(self, img):
+        # Get the dimensions of the image
+        _, height, width = img.shape
+        # Calculate the starting coordinates for the crop
+        start_h = (height - self.size) // 2
+        start_w = (width - self.size) // 2
+        # Perform the crop
+        img = img[:, start_h : start_h + self.size, start_w : start_w + self.size]
+        return img
+
+
+# Define the whole transform with center crop
+whole_transform = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Grayscale(),
+        CenterCrop(512),
+        transforms.Lambda(lambda t: (t * 2) - 1),
+    ]
+)
+
+# Load the dataset and apply the transform
+train_dataset = datasets.ImageFolder(training_data_dir, transform=whole_transform)
+
+# Save the cropped images to the cropped_images subfolder
+for i, (images, labels) in enumerate(train_dataset):
+    # Save the cropped image
+    image_path = os.path.join(cropped_images_dir, f"image_{i}_{labels}.png")
+    torchvision.utils.save_image(images, image_path)
+
+# Define the data loader
+
 
 # fmt: off
 class_table = torch.tensor([[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
@@ -119,39 +163,21 @@ label_dict = {
 
 # fmt: on
 
-grid_transform = transforms.Compose(
-    [
-        transforms.ToTensor(),
-        transforms.Grayscale(),
-        transforms.Lambda(lambda t: (t * 2) - 1),
-    ]
-)
-
-whole_transform = transforms.Compose(
-    [
-        transforms.ToTensor(),
-        transforms.Grayscale(),
-        transforms.RandomCrop(512),
-        transforms.Lambda(lambda t: (t * 2) - 1),
-    ]
-)
 train_dataset = datasets.ImageFolder(whole_dir, transform=whole_transform)
-# ---
 aug_transform = transforms.Compose(
     [
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomVerticalFlip(p=0.5),
     ]
 )
-# ---
+
 reverse_transforms = transforms.Compose(
     [
         transforms.Lambda(lambda t: (t + 1) / 2),
         transforms.Lambda(lambda t: t * 255.0),
     ]
 )
-# ---
-# train_dataset = torch.utils.data.ConcatDataset([grid_dataset,whole_dataset])
+
 train_loader = torch.utils.data.DataLoader(
     dataset=train_dataset, batch_size=batch_size, shuffle=True
 )
