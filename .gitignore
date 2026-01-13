@@ -73,8 +73,8 @@ temp/
 tmp/
 original_images and calculations from OT/
 Segmentation_ilastik/
-external/DDPM/training_data
-external/DDPM/cropped_images
+external/DDPM/Training/training_data/**
+external/DDPM/Training/cropped_images/**
 
 # ============================================================
 # Logs and reports
