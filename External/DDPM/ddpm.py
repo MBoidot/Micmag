@@ -156,7 +156,6 @@ train_dataset = datasets.ImageFolder(training_data_dir, transform=whole_transfor
 
 # Save the cropped images to the cropped_images subfolder
 for i, (images, labels) in enumerate(train_dataset):
-    # Save the cropped image
     image_path = os.path.join(cropped_images_dir, f"image_{i}_{labels}.png")
     torchvision.utils.save_image(images, image_path)
 
