@@ -73,9 +73,11 @@ temp/
 tmp/
 original_images and calculations from OT/
 Segmentation_ilastik/
+
+
 external/DDPM/Training/training_data/*
 external/DDPM/Training/cropped_images/*
-external/DDPM/Training/*
+
 !external/DDPM/Training/training_data/.gitkeep
 !external/DDPM/Training/cropped_images/.gitkeep
 !external/DDPM/Training/.gitkeep
