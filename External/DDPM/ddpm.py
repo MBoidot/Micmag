@@ -37,6 +37,11 @@ magnifications = 6
 embedding_dim = 100
 num_classes = 114
 
+
+# this "class_table" belongs to the original authors code.
+# it's kepts for reference, but below are lines that replace it
+# with a routine that builds it accordig to the training set
+
 # fmt: off
 class_table = torch.tensor([[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
          0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
@@ -136,9 +141,9 @@ class CenterCrop(object):
 
 # Define paths
 current_dir = os.getcwd()
-whole_dir = os.path.join(current_dir, "Training", "Cropped_images")
+whole_dir = os.path.join(current_dir, "Training", "cropped_images")
 training_data_dir = os.path.join(current_dir, "Training", "training_data")
-cropped_images_dir = os.path.join(current_dir, "Training", "Cropped_images")
+cropped_images_dir = os.path.join(current_dir, "Training", "cropped_images")
 
 # Create the cropped_images directory if it doesn't exist
 os.makedirs(cropped_images_dir, exist_ok=True)
@@ -157,31 +162,36 @@ for index, row in df.iterrows():
         "MFR": row["MFR"],
     }
 
+
 # Inspect the filenames and create the class_table
 class_table = []
-for filename in os.listdir(training_data_dir):
-    # Extract the cast name and magnification from the filename
-    # Assuming the filename format is 'SCXX_magnification_number.TIF'
-    cast_name = filename.split("_")[0]
-    magnification = filename.split("_")[1]
-
-    # Look up the parameters in the dictionary
-    parameters = cast_info[cast_name]
-
-    # Add the parameters to the class_table
-    class_table.append(
-        [
-            parameters["CT"],
-            parameters["WR"],
-            parameters["COMP"],
-            parameters["MFR"],
-            magnification,
-        ]
-    )
-
+for subdir, _, files in os.walk(training_data_dir):
+    for filename in files:
+        # Skip the .gitkeep file
+        if filename == ".gitkeep":
+            continue
+        if filename == "Thumbs.db":
+            continue
+        # Extract the cast name and magnification from the filename
+        # Assuming the filename format is 'SCXX_magnification_number.TIF'
+        cast_name = filename.split("_")[0]
+        magnification = filename.split("_")[1]
+        # Convert the magnification to a numerical value
+        magnification = int(magnification)
+        # Look up the parameters in the dictionary
+        parameters = cast_info[cast_name]
+        # Add the parameters to the class_table
+        class_table.append(
+            [
+                parameters["CT"],
+                parameters["WR"],
+                parameters["COMP"],
+                parameters["MFR"],
+                magnification,
+            ]
+        )
 # Convert the class_table to a tensor
 class_table = torch.tensor(class_table)
-
 
 # Define the whole transform with center crop
 whole_transform = transforms.Compose(
