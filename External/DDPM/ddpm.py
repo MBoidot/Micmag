@@ -37,62 +37,52 @@ magnifications = 6
 embedding_dim = 100
 num_classes = 114
 
+# Define paths
+current_dir = os.getcwd()
+whole_dir = os.path.join(current_dir, "Training", "cropped_images")
+training_data_dir = os.path.join(current_dir, "Training", "training_data")
+cropped_images_dir = os.path.join(current_dir, "Training", "cropped_images")
 
-# this "class_table" belongs to the original authors code.
-# it's kepts for reference, but below are lines that replace it
-# with a routine that builds it accordig to the training set
+# Create the cropped_images directory if it doesn't exist
+os.makedirs(cropped_images_dir, exist_ok=True)
+
+# try to make the class_table automatically, mapping name/magnification with cast_parameters.csv information
+# Read the CSV file
+df = pd.read_csv("cast_information.csv", sep=";")
+
+# Create a dictionary to map the cast names to their parameters
+cast_info = {}
+for index, row in df.iterrows():
+    cast_info[row["Cast_name"]] = {
+        "CT": row["CT"],
+        "WR": row["WR"],
+        "COMP": row["COMP"],
+        "MFR": row["MFR"],
+    }
+
+# Initialize one list per parameter (rows)
+class_table = [
+    [] for _ in range(len(df.columns))
+]  # should actually be len(df.columns) -1 (cast_name) +1 (magnification)
+
+for subdir, _, files in os.walk(training_data_dir):
+    for filename in files:
+        if filename in (".gitkeep", "Thumbs.db"):
+            continue
+        cast_name = filename.split("_")[0]
+        magnification = int(filename.split("_")[1])
+        parameters = cast_info[cast_name]
+        # Append each value to its parameter row
+        class_table[0].append(parameters["CT"])
+        class_table[1].append(parameters["WR"])
+        class_table[2].append(parameters["COMP"])
+        class_table[3].append(parameters["MFR"])
+        class_table[4].append(magnification)
+
+# Convert directly to a tensor (already transposed)
+class_table = torch.tensor(class_table)
 
 # fmt: off
-'''class_table = torch.tensor([[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-         1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-         1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-         1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-         1., 1., 1., 1., 1., 1.],
-        [1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-         1., 1., 1., 1., 1., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-         2., 2., 2., 2., 2., 2., 2., 2., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-         1., 1., 1., 1., 1., 1., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-         2., 2., 2., 2., 2., 2.],
-        [1., 1., 1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1.,
-         0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 0., 0., 0., 0., 0., 0., 0., 0.,
-         1., 1., 1., 1., 1., 0., 0., 0., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-         2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-         2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-         2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.,
-         2., 2., 2., 2., 2., 2.],
-        [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 1., 1., 1., 1., 1., 2., 2., 2., 2., 2., 2., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 2., 2., 2., 2.,
-         2., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 2., 2., 2.,
-         2., 2., 0., 0., 0., 0.],
-        [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 1., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         1., 1., 1., 1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 0., 0., 0., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 0.],
-        [2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1., 1., 1., 1., 0., 0., 0., 0.,
-         0., 0., 0., 0., 0., 2., 2., 2., 2., 2., 2., 2., 2., 1., 1., 1., 1., 1.,
-         0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 1., 2., 2., 2., 2.,
-         2., 2., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1.,
-         1., 1., 1., 1., 1., 2., 2., 2., 2., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
-         0., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 2., 2., 2., 2., 0., 0., 0.,
-         0., 0., 1., 1., 1., 1.],
-        [1., 2., 3., 4., 0., 1., 2., 3., 4., 5., 1., 2., 3., 4., 1., 2., 4., 5.,
-         1., 2., 3., 4., 5., 0., 1., 2., 3., 4., 1., 3., 5., 0., 1., 2., 3., 5.,
-         0., 1., 2., 4., 5., 1., 2., 4., 0., 1., 2., 3., 4., 5., 0., 1., 2., 3.,
-         4., 5., 0., 1., 2., 4., 5., 0., 1., 2., 3., 4., 5., 0., 1., 2., 3., 4.,
-         0., 1., 2., 4., 5., 0., 1., 2., 4., 0., 1., 2., 4., 5., 0., 1., 2., 4.,
-         5., 1., 2., 3., 4., 5., 1., 2., 3., 4., 5., 0., 1., 2., 4., 0., 1., 2.,
-         4., 5., 0., 1., 2., 4.]])
-'''
 label_dict = {
     0: 'CM01-0500', 1: 'CM01-1000',2: 'CM01-1500',3: 'CM01-2000',4: 'CM04-0100',5: 'CM04-0500',
     6: 'CM04-1000',7: 'CM04-1500',8: 'CM04-2000',9: 'CM04-3000',10: 'CM10-0500',
@@ -119,7 +109,6 @@ label_dict = {
     111: 'PS18-0500',112: 'PS18-1000',113: 'PS18-2000'
 }
 
-
 # fmt: on
 
 
@@ -139,58 +128,13 @@ class CenterCrop(object):
         return img
 
 
-# Define paths
-current_dir = os.getcwd()
-whole_dir = os.path.join(current_dir, "Training", "cropped_images")
-training_data_dir = os.path.join(current_dir, "Training", "training_data")
-cropped_images_dir = os.path.join(current_dir, "Training", "cropped_images")
-
-# Create the cropped_images directory if it doesn't exist
-os.makedirs(cropped_images_dir, exist_ok=True)
-
-# try to make the class_table automatically, mapping name/magnification with cast_parameters.csv information
-# Read the CSV file
-df = pd.read_csv("cast_information.csv", sep=";")
-
-# Create a dictionary to map the cast names to their parameters
-cast_info = {}
-for index, row in df.iterrows():
-    cast_info[row["Cast_name"]] = {
-        "CT": row["CT"],
-        "WR": row["WR"],
-        "COMP": row["COMP"],
-        "MFR": row["MFR"],
-    }
-
-
-# Initialize one list per parameter (rows)
-class_table = [
-    [] for _ in range(len(df.columns))
-]  # should actually be len(df.columns) -1 (cast_name) +1 (magnification)
-
-for subdir, _, files in os.walk(training_data_dir):
-    for filename in files:
-        if filename in (".gitkeep", "Thumbs.db"):
-            continue
-
-        cast_name = filename.split("_")[0]
-        magnification = int(filename.split("_")[1])
-
-        parameters = cast_info[cast_name]
-
-        # Append each value to its parameter row
-        class_table[0].append(parameters["CT"])
-        class_table[1].append(parameters["WR"])
-        class_table[2].append(parameters["COMP"])
-        class_table[3].append(parameters["MFR"])
-        class_table[4].append(magnification)
-
-# Convert directly to a tensor (already transposed)
-class_table = torch.tensor(class_table)
-print(class_table)
-
-
 # Define the whole transform with center crop
+# The filter work, however the images are not homogeneous after transform
+# automoatic segmentaition might fail for instance.
+# some adaptive thresholding could be performed here instead of grayscale conversion
+# pay attention to the naming as well
+# and check what happens in some images that seem not to be transformed (image 55-4, 56-4 and 7-0)
+
 whole_transform = transforms.Compose(
     [
         transforms.ToTensor(),
@@ -254,36 +198,35 @@ class Diffusion:
     def sample_timesteps(self, n):
         return torch.randint(low=1, high=self.noise_steps, size=(n,))
 
-    def sample(self, model, n, SHP, Loc, CR, SK, HT, FT, Mag, cfg_scale=0):
+    def sample(self, model, n, CT, WR, COMP, MFR, MAG, cfg_scale=0):
         model.eval()
         with torch.no_grad():
             x = torch.randn((n, 1, self.img_size, self.img_size)).to(device)
+
             for i in reversed(range(1, self.noise_steps)):
-                t = (torch.ones(n) * i).long().to(device)
-                predicted_noise = model(x, t, SHP, Loc, CR, SK, HT, FT, Mag)
+                t = torch.full((n,), i, device=device, dtype=torch.long)
+
+                predicted_noise = model(x, t, CT, WR, COMP, MFR, MAG)
+
                 if cfg_scale > 0:
-                    uncond_predicted_noise = model(
-                        x, t, None, None, None, None, None, None, None
-                    )
+                    uncond_predicted_noise = model(x, t, None, None, None, None, None)
                     predicted_noise = torch.lerp(
                         uncond_predicted_noise, predicted_noise, cfg_scale
                     )
+
                 alpha = self.alpha[t][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
                 beta = self.beta[t][:, None, None, None]
-                if i > 1:
-                    noise = torch.randn_like(x)
-                else:
-                    noise = torch.zeros_like(x)
+
+                noise = torch.randn_like(x) if i > 1 else torch.zeros_like(x)
+
                 x = (
                     1
                     / torch.sqrt(alpha)
-                    * (
-                        x
-                        - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise
-                    )
+                    * (x - ((1 - alpha) / torch.sqrt(1 - alpha_hat)) * predicted_noise)
                     + torch.sqrt(beta) * noise
                 )
+
         model.train()
         return x
 
@@ -302,62 +245,71 @@ load_model(load_dir)
 
 for e in range(1, n_epoch + 1):
     loss_epoch = 0
+
     for i, (images, labels) in enumerate(train_loader):
         optimizer.zero_grad()
-        images = aug_transform(images)
-        images = images.to(device)
-        shp, loc, cr, sk, ht, ft, mag = class_maker(
+
+        images = aug_transform(images).to(device)
+        labels = labels.long().to(device)
+
+        CT, WR, COMP, MFR, MAG = class_maker(
             batch_size=labels.size(0), labels=labels, class_table=class_table
         )
-        shp = shp.long().to(device)
-        loc = loc.long().to(device)
-        cr = cr.long().to(device)
-        sk = sk.long().to(device)
-        ht = ht.long().to(device)
-        ft = ft.long().to(device)
-        mag = mag.long().to(device)
-        labels = labels.long().to(device)
+
+        CT = CT.long().to(device)
+        WR = WR.long().to(device)
+        COMP = COMP.long().to(device)
+        MFR = MFR.long().to(device)
+        MAG = MAG.long().to(device)
+
         t = diffusion.sample_timesteps(images.shape[0]).to(device)
         x_t, noise = diffusion.noise_images(images, t)
 
-        predicted_noise = model(x_t, t, shp, loc, cr, sk, ht, ft, mag)
-        loss = mse(noise, predicted_noise)
+        predicted_noise = model(x_t, t, CT, WR, COMP, MFR, MAG)
 
+        loss = mse(noise, predicted_noise)
         loss.backward()
+
         optimizer.step()
         ema.step_ema(ema_model, model)
+
         loss_epoch += loss.item()
 
-    print("Epoch: [%d/%d]: Loss: %.3f" % ((e), n_epoch, loss_epoch))
+    print(f"Epoch [{e}/{n_epoch}] - Loss: {loss_epoch:.3f}")
 
     if e % n_ax == 0:
-        test_labels = torch.randint(0, 114, [n_sampled_images, 1])
-        t_shp, t_loc, t_cr, t_sk, t_ht, t_ft, t_mag = class_maker(
+        # Randomly sample class labels
+        test_labels = torch.randint(0, num_classes, (n_sampled_images,))
+        test_labels = test_labels.long().to(device)
+
+        # Build conditioning parameters from class_table
+        CT, WR, COMP, MFR, MAG = class_maker(
             batch_size=test_labels.size(0), labels=test_labels, class_table=class_table
         )
-        test_labels = test_labels.to(device)
-        test_labels = test_labels.unsqueeze(1).long()
-        t_shp = t_shp.long().to(device)
-        t_loc = t_loc.long().to(device)
-        t_cr = t_cr.long().to(device)
-        t_sk = t_sk.long().to(device)
-        t_ht = t_ht.long().to(device)
-        t_ft = t_ft.long().to(device)
-        t_mag = t_mag.long().to(device)
+
+        CT = CT.long().to(device)
+        WR = WR.long().to(device)
+        COMP = COMP.long().to(device)
+        MFR = MFR.long().to(device)
+        MAG = MAG.long().to(device)
+
+        # Sample images using EMA model
         ema_sampled_images = diffusion.sample(
             ema_model,
             n_sampled_images,
-            t_shp,
-            t_loc,
-            t_cr,
-            t_sk,
-            t_ht,
-            t_ft,
-            t_mag,
+            CT,
+            WR,
+            COMP,
+            MFR,
+            MAG,
             cfg_scale=0,
         )
+
+        # Post-process and visualize
         ema_sampled_images = reverse_transforms(ema_sampled_images)
         show_grids(ema_sampled_images, test_labels, e, label_dict)
+
+        # Save model checkpoint
         save_dir = str(current_dir) + "/Generated-Images/All_CDDM_HR_Cat_V_6.pth.tar"
         save_model(save_dir)
 
