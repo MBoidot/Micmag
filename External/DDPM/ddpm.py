@@ -28,14 +28,6 @@ image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
 
 shapes = 2
-locations = 3
-cooling_rates = 3
-soaking_times = 3
-forging_temps = 3
-heat_treatments = 2
-magnifications = 6
-embedding_dim = 100
-num_classes = 114
 
 # Define paths
 current_dir = os.getcwd()
@@ -60,27 +52,78 @@ for index, row in df.iterrows():
         "MFR": row["MFR"],
     }
 
-# Initialize one list per parameter (rows)
-class_table = [
-    [] for _ in range(len(df.columns))
-]  # should actually be len(df.columns) -1 (cast_name) +1 (magnification)
+# Initialize raw (physical) class table
+raw_class_table = [[] for _ in range(5)]  # CT, WR, COMP, MFR, MAG
 
 for subdir, _, files in os.walk(training_data_dir):
     for filename in files:
         if filename in (".gitkeep", "Thumbs.db"):
             continue
+
         cast_name = filename.split("_")[0]
         magnification = int(filename.split("_")[1])
         parameters = cast_info[cast_name]
-        # Append each value to its parameter row
-        class_table[0].append(parameters["CT"])
-        class_table[1].append(parameters["WR"])
-        class_table[2].append(parameters["COMP"])
-        class_table[3].append(parameters["MFR"])
-        class_table[4].append(magnification)
 
-# Convert directly to a tensor (already transposed)
-class_table = torch.tensor(class_table)
+        raw_class_table[0].append(parameters["CT"])
+        raw_class_table[1].append(parameters["WR"])
+        raw_class_table[2].append(parameters["COMP"])
+        raw_class_table[3].append(parameters["MFR"])
+        raw_class_table[4].append(magnification)
+
+# Convert to tensor for convenience
+raw_class_table = torch.tensor(raw_class_table)
+
+# -------------------------------------------------
+# Encode physical values -> discrete indices
+# -------------------------------------------------
+
+
+def encode_levels(values):
+    """
+    values: 1D tensor
+    returns:
+        encoded tensor
+        dict value -> index
+    """
+    unique_vals = torch.unique(values)
+    unique_vals, _ = torch.sort(unique_vals)
+    value_to_idx = {v.item(): i for i, v in enumerate(unique_vals)}
+    encoded = torch.tensor([value_to_idx[v.item()] for v in values])
+    return encoded, value_to_idx
+
+
+CT_enc, CT_map = encode_levels(raw_class_table[0])
+WR_enc, WR_map = encode_levels(raw_class_table[1])
+COMP_enc, COMP_map = encode_levels(raw_class_table[2])
+MFR_enc, MFR_map = encode_levels(raw_class_table[3])
+MAG_enc, MAG_map = encode_levels(raw_class_table[4])
+
+# Final encoded class table (THIS is used by the model)
+class_table = torch.stack([CT_enc, WR_enc, COMP_enc, MFR_enc, MAG_enc])
+
+# Number of discrete levels (for embeddings)
+n_CT = len(CT_map)
+n_WR = len(WR_map)
+n_COMP = len(COMP_map)
+n_MFR = len(MFR_map)
+n_MAG = len(MAG_map)
+
+embedding_dim = 100  # model choice, not data-dependent
+
+num_levels = {
+    "CT": n_CT,
+    "WR": n_WR,
+    "COMP": n_COMP,
+    "MFR": n_MFR,
+    "MAG": n_MAG,
+}
+
+num_classes = class_table.shape[1]  # number of valid image/parameter combinations
+
+conditioning_config = {
+    "num_levels": num_levels,
+    "embedding_dim": embedding_dim,
+}
 
 # fmt: off
 label_dict = {
@@ -231,7 +274,11 @@ class Diffusion:
         return x
 
 
-model = UNet_conditional(num_classes=num_classes).to(device)
+model = UNet_conditional(
+    c_in=1, c_out=1, time_dim=512, cond_dims=conditioning_config
+).to(device)
+
+
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 mse = nn.MSELoss()
 diffusion = Diffusion(img_size=image_size)

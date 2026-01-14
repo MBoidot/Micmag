@@ -106,109 +106,162 @@ class DoubleConv(nn.Module):
 
 
 class Down(nn.Module):
-    def __init__(self, in_channels, out_channels, imsize, emb_dim=512):
+    def __init__(self, in_channels, out_channels, imsize, cond_dims, emb_dim=512):
+        """
+        Downsampling block with conditioning embeddings.
+
+        Args:
+            in_channels (int): number of input channels
+            out_channels (int): number of output channels
+            imsize (int): spatial size of the feature map
+            cond_dims (dict): conditioning config with 'num_levels' and 'embedding_dim'
+            emb_dim (int): dimension of time embedding
+        """
         super().__init__()
         self.imsize = imsize
+        self.cond_dims = cond_dims
+        self.emb_dim = emb_dim
+
+        # Downsampling convolution
         self.maxpool_conv = nn.Sequential(
             nn.MaxPool2d(2),
             DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, (out_channels - 7)),
-        )
-        self.emb_layer = nn.Sequential(nn.SiLU(), nn.Linear(emb_dim, out_channels))
-        self.SHP_label = nn.Sequential(
-            nn.Embedding(shapes, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.Loc_label = nn.Sequential(
-            nn.Embedding(locations, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.CR_label = nn.Sequential(
-            nn.Embedding(cooling_rates, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.SK_label = nn.Sequential(
-            nn.Embedding(soaking_times, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.HT_label = nn.Sequential(
-            nn.Embedding(heat_treatments, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.FT_label = nn.Sequential(
-            nn.Embedding(forging_temps, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.Mag_label = nn.Sequential(
-            nn.Embedding(magnifications, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
+            DoubleConv(in_channels, out_channels),
         )
 
-    def forward(self, x, t, SHP, Loc, CR, SK, HT, FT, Mag):
+        # Time embedding
+        self.emb_layer = nn.Sequential(nn.SiLU(), nn.Linear(emb_dim, out_channels))
+
+        # Conditioning embeddings
+        self.CT_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["CT"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+        self.WR_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["WR"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+        self.COMP_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["COMP"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+        self.MFR_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["MFR"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+        self.MAG_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["MAG"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+
+    def forward(self, x, t, CT, WR, COMP, MFR, MAG):
+        """
+        Forward pass.
+
+        Args:
+            x (Tensor): input feature map [B, C, H, W]
+            t (Tensor): time embedding [B, emb_dim]
+            CT, WR, COMP, MFR, MAG (Tensor): encoded conditioning indices
+        """
+        # Downsampling conv
         x = self.maxpool_conv(x)
+
+        # Time embedding
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
-        shpemb = self.SHP_label(SHP).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        locemb = self.Loc_label(Loc).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        cremb = self.CR_label(CR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        skemb = self.SK_label(SK).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        htemb = self.HT_label(HT).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        ftemb = self.FT_label(FT).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        magemb = self.Mag_label(Mag).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        x = torch.cat((x, shpemb, locemb, cremb, skemb, htemb, ftemb, magemb), dim=1)
+
+        # Conditioning embeddings
+        ctemb = self.CT_label(CT).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        wremb = self.WR_label(WR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        compemb = self.COMP_label(COMP).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        mfremb = self.MFR_label(MFR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        magemb = self.MAG_label(MAG).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+
+        # Concatenate embeddings along channel dimension
+        x = torch.cat((x, ctemb, wremb, compemb, mfremb, magemb), dim=1)
+
+        # Add time embedding
         return x + emb
 
 
 class Up(nn.Module):
-    def __init__(self, in_channels, out_channels, imsize, emb_dim=512):
+    def __init__(self, in_channels, out_channels, imsize, cond_dims, emb_dim=512):
+        """
+        Upsampling block with skip connections and conditioning embeddings.
+
+        Args:
+            in_channels (int): number of input channels (after concatenating skip)
+            out_channels (int): number of output channels
+            imsize (int): spatial size of the feature map
+            cond_dims (dict): conditioning config with 'num_levels' and 'embedding_dim'
+            emb_dim (int): dimension of time embedding
+        """
         super().__init__()
         self.imsize = imsize
+        self.cond_dims = cond_dims
+        self.emb_dim = emb_dim
+
+        # Upsample layer
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
+
+        # Main conv layers after concatenation with skip connection
         self.conv = nn.Sequential(
             DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, out_channels - 7, in_channels // 2),
-        )
-        self.emb_layer = nn.Sequential(nn.SiLU(), nn.Linear(emb_dim, out_channels))
-        self.SHP_label = nn.Sequential(
-            nn.Embedding(shapes, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.Loc_label = nn.Sequential(
-            nn.Embedding(locations, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.CR_label = nn.Sequential(
-            nn.Embedding(cooling_rates, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.SK_label = nn.Sequential(
-            nn.Embedding(soaking_times, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.HT_label = nn.Sequential(
-            nn.Embedding(heat_treatments, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.FT_label = nn.Sequential(
-            nn.Embedding(forging_temps, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
-        )
-        self.Mag_label = nn.Sequential(
-            nn.Embedding(magnifications, embedding_dim),
-            nn.Linear(embedding_dim, 1 * self.imsize * self.imsize),
+            DoubleConv(in_channels, out_channels),
         )
 
-    def forward(self, x, skip_x, t, SHP, Loc, CR, SK, HT, FT, Mag):
+        # Time embedding
+        self.emb_layer = nn.Sequential(nn.SiLU(), nn.Linear(emb_dim, out_channels))
+
+        # Conditioning embeddings
+        self.CT_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["CT"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+        self.WR_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["WR"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+        self.COMP_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["COMP"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+        self.MFR_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["MFR"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+        self.MAG_label = nn.Sequential(
+            nn.Embedding(cond_dims["num_levels"]["MAG"], cond_dims["embedding_dim"]),
+            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
+        )
+
+    def forward(self, x, skip_x, t, CT, WR, COMP, MFR, MAG):
+        """
+        Forward pass.
+
+        Args:
+            x (Tensor): input feature map [B, C, H, W]
+            skip_x (Tensor): skip connection feature map from down path
+            t (Tensor): time embedding [B, emb_dim]
+            CT, WR, COMP, MFR, MAG (Tensor): encoded conditioning indices
+        """
+        # Upsample and concatenate skip connection
         x = self.up(x)
         x = torch.cat([skip_x, x], dim=1)
+
+        # Main conv
         x = self.conv(x)
-        shpemb = self.SHP_label(SHP).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        locemb = self.Loc_label(Loc).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        cremb = self.CR_label(CR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        skemb = self.SK_label(SK).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        htemb = self.HT_label(HT).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        ftemb = self.FT_label(FT).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        magemb = self.Mag_label(Mag).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        x = torch.cat((x, shpemb, locemb, cremb, skemb, htemb, ftemb, magemb), dim=1)
+
+        # Conditioning embeddings
+        ctemb = self.CT_label(CT).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        wremb = self.WR_label(WR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        compemb = self.COMP_label(COMP).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        mfremb = self.MFR_label(MFR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        magemb = self.MAG_label(MAG).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+
+        # Concatenate conditioning embeddings along channel dimension
+        x = torch.cat((x, ctemb, wremb, compemb, mfremb, magemb), dim=1)
+
+        # Add time embedding
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x + emb
 
@@ -291,37 +344,53 @@ class UNet(nn.Module):
 
 
 class UNet_conditional(nn.Module):
-    def __init__(self, c_in=1, c_out=1, time_dim=512, num_classes=None):
+    def __init__(self, c_in=1, c_out=1, time_dim=512, cond_dims=None):
+        """
+        Conditional UNet with Down/Up blocks supporting arbitrary numbers of levels per condition.
+
+        Args:
+            c_in (int): input channels (image)
+            c_out (int): output channels
+            time_dim (int): dimension of time embedding
+            cond_dims (dict): {'num_levels': {...}, 'embedding_dim': int}
+        """
         super().__init__()
         self.time_dim = time_dim
+        self.cond_dims = cond_dims
+
         self.inc = DoubleConv(c_in, 16)
-        self.down1 = Down(16, 32, 256)
+        self.down1 = Down(16, 32, 256, cond_dims)
         self.sa1 = SelfAttention4(32, 256)
-        self.down2 = Down(32, 64, 128)
+        self.down2 = Down(32, 64, 128, cond_dims)
         self.sa2 = SelfAttention4(64, 128)
-        self.down3 = Down(64, 128, 64)
+        self.down3 = Down(64, 128, 64, cond_dims)
         self.sa3 = SelfAttention2(128, 64)
-        self.down4 = Down(128, 256, 32)
+        self.down4 = Down(128, 256, 32, cond_dims)
         self.sa4 = SelfAttention4(256, 32)
-        self.down5 = Down(256, 512, 16)
+        self.down5 = Down(256, 512, 16, cond_dims)
         self.sa5 = SelfAttention4(512, 16)
-        self.down6 = Down(512, 512, 8)
+        self.down6 = Down(512, 512, 8, cond_dims)
         self.sa6 = SelfAttention4(512, 8)
+
+        # Bottleneck
         self.bot1 = DoubleConv(512, 512)
         self.bot2 = DoubleConv(512, 512)
         self.bot3 = DoubleConv(512, 512)
-        self.up6 = Up(1024, 256, 16)
+
+        # Upsampling
+        self.up6 = Up(1024, 256, 16, cond_dims)
         self.as6 = SelfAttention4(256, 16)
-        self.up5 = Up(512, 128, 32)
+        self.up5 = Up(512, 128, 32, cond_dims)
         self.as5 = SelfAttention4(128, 32)
-        self.up4 = Up(256, 64, 64)
+        self.up4 = Up(256, 64, 64, cond_dims)
         self.as4 = SelfAttention4(64, 64)
-        self.up3 = Up(128, 32, 128)
+        self.up3 = Up(128, 32, 128, cond_dims)
         self.as3 = SelfAttention2(32, 128)
-        self.up2 = Up(64, 16, 256)
+        self.up2 = Up(64, 16, 256, cond_dims)
         self.as2 = SelfAttention4(16, 256)
-        self.up1 = Up(32, 8, 512)
+        self.up1 = Up(32, 8, 512, cond_dims)
         self.as1 = SelfAttention4(8, 512)
+
         self.outc = nn.Conv2d(8, c_out, kernel_size=1)
 
     def pos_encoding(self, t, channels):
@@ -330,39 +399,42 @@ class UNet_conditional(nn.Module):
         )
         pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
         pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
-        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
-        return pos_enc
+        return torch.cat([pos_enc_a, pos_enc_b], dim=-1)
 
-    def forward(self, x, t, SHP, Loc, CR, SK, HT, FT, Mag):
+    def forward(self, x, t, CT, WR, COMP, MFR, MAG):
+        # Time positional encoding
         t = t.unsqueeze(-1).type(torch.float)
         t = self.pos_encoding(t, self.time_dim)
+
+        # Downsampling
         x0 = self.inc(x)
-        x1 = self.down1(x0, t, SHP, Loc, CR, SK, HT, FT, Mag)
-        # x1 = self.sa1(x1)
-        x2 = self.down2(x1, t, SHP, Loc, CR, SK, HT, FT, Mag)
-        # x2 = self.sa2(x2)
-        x3 = self.down3(x2, t, SHP, Loc, CR, SK, HT, FT, Mag)
+        x1 = self.down1(x0, t, CT, WR, COMP, MFR, MAG)
+        x2 = self.down2(x1, t, CT, WR, COMP, MFR, MAG)
+        x3 = self.down3(x2, t, CT, WR, COMP, MFR, MAG)
         x3 = self.sa3(x3)
-        x4 = self.down4(x3, t, SHP, Loc, CR, SK, HT, FT, Mag)
+        x4 = self.down4(x3, t, CT, WR, COMP, MFR, MAG)
         x4 = self.sa4(x4)
-        x5 = self.down5(x4, t, SHP, Loc, CR, SK, HT, FT, Mag)
+        x5 = self.down5(x4, t, CT, WR, COMP, MFR, MAG)
         x5 = self.sa5(x5)
-        x6 = self.down6(x5, t, SHP, Loc, CR, SK, HT, FT, Mag)
+        x6 = self.down6(x5, t, CT, WR, COMP, MFR, MAG)
         x6 = self.sa6(x6)
+
+        # Bottleneck
         x6 = self.bot1(x6)
         x6 = self.bot2(x6)
         x6 = self.bot3(x6)
-        x = self.up6(x6, x5, t, SHP, Loc, CR, SK, HT, FT, Mag)
+
+        # Upsampling
+        x = self.up6(x6, x5, t, CT, WR, COMP, MFR, MAG)
         x = self.as6(x)
-        x = self.up5(x, x4, t, SHP, Loc, CR, SK, HT, FT, Mag)
+        x = self.up5(x, x4, t, CT, WR, COMP, MFR, MAG)
         x = self.as5(x)
-        x = self.up4(x, x3, t, SHP, Loc, CR, SK, HT, FT, Mag)
+        x = self.up4(x, x3, t, CT, WR, COMP, MFR, MAG)
         x = self.as4(x)
-        x = self.up3(x, x2, t, SHP, Loc, CR, SK, HT, FT, Mag)
+        x = self.up3(x, x2, t, CT, WR, COMP, MFR, MAG)
         x = self.as3(x)
-        x = self.up2(x, x1, t, SHP, Loc, CR, SK, HT, FT, Mag)
-        # x = self.as2(x)
-        x = self.up1(x, x0, t, SHP, Loc, CR, SK, HT, FT, Mag)
-        # x = self.as1(x)
-        output = self.outc(x)
-        return output
+        x = self.up2(x, x1, t, CT, WR, COMP, MFR, MAG)
+        x = self.up1(x, x0, t, CT, WR, COMP, MFR, MAG)
+
+        # Final output
+        return self.outc(x)
