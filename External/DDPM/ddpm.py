@@ -15,6 +15,7 @@ import os
 import copy
 from utils import *
 from modules import *
+import pandas as pd
 
 batch_size = 2
 n_sampled_images = 4
@@ -141,6 +142,46 @@ cropped_images_dir = os.path.join(current_dir, "Training", "Cropped_images")
 
 # Create the cropped_images directory if it doesn't exist
 os.makedirs(cropped_images_dir, exist_ok=True)
+
+# try to make the class_table automatically, mapping name/magnification with cast_parameters.csv information
+# Read the CSV file
+df = pd.read_csv("cast_information.csv", sep="\t")
+
+# Create a dictionary to map the cast names to their parameters
+cast_info = {}
+for index, row in df.iterrows():
+    cast_info[row["Cast_name"]] = {
+        "CT": row["CT"],
+        "WR": row["WR"],
+        "COMP": row["COMP"],
+        "MFR": row["MFR"],
+    }
+
+# Inspect the filenames and create the class_table
+class_table = []
+for filename in os.listdir(training_data_dir):
+    # Extract the cast name and magnification from the filename
+    # Assuming the filename format is 'SCXX_magnification_number.TIF'
+    cast_name = filename.split("_")[0]
+    magnification = filename.split("_")[1]
+
+    # Look up the parameters in the dictionary
+    parameters = cast_info[cast_name]
+
+    # Add the parameters to the class_table
+    class_table.append(
+        [
+            parameters["CT"],
+            parameters["WR"],
+            parameters["COMP"],
+            parameters["MFR"],
+            magnification,
+        ]
+    )
+
+# Convert the class_table to a tensor
+class_table = torch.tensor(class_table)
+
 
 # Define the whole transform with center crop
 whole_transform = transforms.Compose(
