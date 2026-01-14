@@ -43,7 +43,7 @@ num_classes = 114
 # with a routine that builds it accordig to the training set
 
 # fmt: off
-class_table = torch.tensor([[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+'''class_table = torch.tensor([[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
          0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
          0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
          1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
@@ -92,7 +92,7 @@ class_table = torch.tensor([[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
          0., 1., 2., 4., 5., 0., 1., 2., 4., 0., 1., 2., 4., 5., 0., 1., 2., 4.,
          5., 1., 2., 3., 4., 5., 1., 2., 3., 4., 5., 0., 1., 2., 4., 0., 1., 2.,
          4., 5., 0., 1., 2., 4.]])
-
+'''
 label_dict = {
     0: 'CM01-0500', 1: 'CM01-1000',2: 'CM01-1500',3: 'CM01-2000',4: 'CM04-0100',5: 'CM04-0500',
     6: 'CM04-1000',7: 'CM04-1500',8: 'CM04-2000',9: 'CM04-3000',10: 'CM10-0500',
@@ -150,7 +150,7 @@ os.makedirs(cropped_images_dir, exist_ok=True)
 
 # try to make the class_table automatically, mapping name/magnification with cast_parameters.csv information
 # Read the CSV file
-df = pd.read_csv("cast_information.csv", sep="\t")
+df = pd.read_csv("cast_information.csv", sep=";")
 
 # Create a dictionary to map the cast names to their parameters
 cast_info = {}
@@ -163,35 +163,32 @@ for index, row in df.iterrows():
     }
 
 
-# Inspect the filenames and create the class_table
-class_table = []
+# Initialize one list per parameter (rows)
+class_table = [
+    [] for _ in range(len(df.columns))
+]  # should actually be len(df.columns) -1 (cast_name) +1 (magnification)
+
 for subdir, _, files in os.walk(training_data_dir):
     for filename in files:
-        # Skip the .gitkeep file
-        if filename == ".gitkeep":
+        if filename in (".gitkeep", "Thumbs.db"):
             continue
-        if filename == "Thumbs.db":
-            continue
-        # Extract the cast name and magnification from the filename
-        # Assuming the filename format is 'SCXX_magnification_number.TIF'
+
         cast_name = filename.split("_")[0]
-        magnification = filename.split("_")[1]
-        # Convert the magnification to a numerical value
-        magnification = int(magnification)
-        # Look up the parameters in the dictionary
+        magnification = int(filename.split("_")[1])
+
         parameters = cast_info[cast_name]
-        # Add the parameters to the class_table
-        class_table.append(
-            [
-                parameters["CT"],
-                parameters["WR"],
-                parameters["COMP"],
-                parameters["MFR"],
-                magnification,
-            ]
-        )
-# Convert the class_table to a tensor
+
+        # Append each value to its parameter row
+        class_table[0].append(parameters["CT"])
+        class_table[1].append(parameters["WR"])
+        class_table[2].append(parameters["COMP"])
+        class_table[3].append(parameters["MFR"])
+        class_table[4].append(magnification)
+
+# Convert directly to a tensor (already transposed)
 class_table = torch.tensor(class_table)
+print(class_table)
+
 
 # Define the whole transform with center crop
 whole_transform = transforms.Compose(
