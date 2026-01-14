@@ -17,10 +17,13 @@ from utils import *
 from modules import *
 import pandas as pd
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 batch_size = 2
 n_sampled_images = 4
-n_epoch = 400
-n_ax = int(n_epoch / 20)
+n_epoch = 1
+log_interval = 10  # print loss every 10 batches
+n_ax = max(1, int(n_epoch / 20))
 total_loss_min = np.inf
 image_shape = (1, 512, 512)
 image_size = 512
@@ -38,11 +41,8 @@ cropped_images_dir = os.path.join(current_dir, "Training", "cropped_images")
 # Create the cropped_images directory if it doesn't exist
 os.makedirs(cropped_images_dir, exist_ok=True)
 
-# try to make the class_table automatically, mapping name/magnification with cast_parameters.csv information
-# Read the CSV file
 df = pd.read_csv("cast_information.csv", sep=";")
 
-# Create a dictionary to map the cast names to their parameters
 cast_info = {}
 for index, row in df.iterrows():
     cast_info[row["Cast_name"]] = {
@@ -274,7 +274,7 @@ class Diffusion:
         return x
 
 
-model = UNet_conditional(
+model = UNet_conditional_small(
     c_in=1, c_out=1, time_dim=512, cond_dims=conditioning_config
 ).to(device)
 
@@ -287,8 +287,8 @@ ema = EMA(0.995)
 ema_model = copy.deepcopy(model).eval().requires_grad_(False)
 
 # here a window pop upto browse for the model could be implemented
-load_dir = str(current_dir) + "/All_CDDM_HR_Cat_V_5.pth.tar"
-load_model(load_dir)
+"""load_dir = str(current_dir) + "/All_CDDM_HR_Cat_V_5.pth.tar"
+load_model(load_dir)"""
 
 for e in range(1, n_epoch + 1):
     loss_epoch = 0
@@ -328,6 +328,7 @@ for e in range(1, n_epoch + 1):
         # Randomly sample class labels
         test_labels = torch.randint(0, num_classes, (n_sampled_images,))
         test_labels = test_labels.long().to(device)
+        print("i'm here")
 
         # Build conditioning parameters from class_table
         CT, WR, COMP, MFR, MAG = class_maker(

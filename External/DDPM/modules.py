@@ -106,164 +106,97 @@ class DoubleConv(nn.Module):
 
 
 class Down(nn.Module):
-    def __init__(self, in_channels, out_channels, imsize, cond_dims, emb_dim=512):
-        """
-        Downsampling block with conditioning embeddings.
-
-        Args:
-            in_channels (int): number of input channels
-            out_channels (int): number of output channels
-            imsize (int): spatial size of the feature map
-            cond_dims (dict): conditioning config with 'num_levels' and 'embedding_dim'
-            emb_dim (int): dimension of time embedding
-        """
+    def __init__(self, in_ch, out_ch, time_dim, cond_dims):
         super().__init__()
-        self.imsize = imsize
-        self.cond_dims = cond_dims
-        self.emb_dim = emb_dim
+        self.maxpool_conv = nn.Sequential(nn.MaxPool2d(2), DoubleConv(in_ch, out_ch))
+        self.time_dim = time_dim
+        self.emb_layer = nn.Linear(time_dim, out_ch)
 
-        # Downsampling convolution
-        self.maxpool_conv = nn.Sequential(
-            nn.MaxPool2d(2),
-            DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, out_channels),
-        )
+        # Conditional embeddings
+        self.cond_embeddings = nn.ModuleDict()
+        if cond_dims is not None:
+            for k, n_levels in cond_dims["num_levels"].items():
+                self.cond_embeddings[k] = nn.Embedding(
+                    n_levels, cond_dims["embedding_dim"]
+                )
+            self.cond_proj = nn.Linear(
+                len(cond_dims["num_levels"]) * cond_dims["embedding_dim"], out_ch
+            )
 
-        # Time embedding
-        self.emb_layer = nn.Sequential(nn.SiLU(), nn.Linear(emb_dim, out_channels))
-
-        # Conditioning embeddings
-        self.CT_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["CT"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-        self.WR_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["WR"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-        self.COMP_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["COMP"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-        self.MFR_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["MFR"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-        self.MAG_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["MAG"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-
-    def forward(self, x, t, CT, WR, COMP, MFR, MAG):
-        """
-        Forward pass.
-
-        Args:
-            x (Tensor): input feature map [B, C, H, W]
-            t (Tensor): time embedding [B, emb_dim]
-            CT, WR, COMP, MFR, MAG (Tensor): encoded conditioning indices
-        """
-        # Downsampling conv
+    def forward(self, x, t, CT=None, WR=None, COMP=None, MFR=None, MAG=None):
         x = self.maxpool_conv(x)
 
-        # Time embedding
-        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
+        # --- Time embedding ---
+        t_emb = UNet_conditional.get_time_embedding(
+            self, t, self.time_dim
+        )  # [B, time_dim]
+        t_emb = self.emb_layer(t_emb)  # [B, out_ch]
 
-        # Conditioning embeddings
-        ctemb = self.CT_label(CT).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        wremb = self.WR_label(WR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        compemb = self.COMP_label(COMP).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        mfremb = self.MFR_label(MFR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        magemb = self.MAG_label(MAG).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        # --- Conditional embedding ---
+        cond_emb = 0
+        if hasattr(self, "cond_embeddings") and CT is not None:
+            embeds = []
+            for k, v in zip(
+                ["CT", "WR", "COMP", "MFR", "MAG"], [CT, WR, COMP, MFR, MAG]
+            ):
+                embeds.append(self.cond_embeddings[k](v))
+            cond_emb = torch.cat(embeds, dim=1)
+            cond_emb = self.cond_proj(cond_emb)  # [B, out_ch]
 
-        # Concatenate embeddings along channel dimension
-        x = torch.cat((x, ctemb, wremb, compemb, mfremb, magemb), dim=1)
-
-        # Add time embedding
-        return x + emb
+        # Combine and broadcast to spatial dims
+        emb = t_emb + cond_emb
+        emb = emb[:, :, None, None].expand(-1, -1, x.shape[-2], x.shape[-1])
+        x = x + emb
+        return x
 
 
 class Up(nn.Module):
-    def __init__(self, in_channels, out_channels, imsize, cond_dims, emb_dim=512):
-        """
-        Upsampling block with skip connections and conditioning embeddings.
-
-        Args:
-            in_channels (int): number of input channels (after concatenating skip)
-            out_channels (int): number of output channels
-            imsize (int): spatial size of the feature map
-            cond_dims (dict): conditioning config with 'num_levels' and 'embedding_dim'
-            emb_dim (int): dimension of time embedding
-        """
+    def __init__(self, in_ch, out_ch, time_dim, cond_dims, bilinear=True):
         super().__init__()
-        self.imsize = imsize
+        self.time_dim = time_dim
         self.cond_dims = cond_dims
-        self.emb_dim = emb_dim
 
-        # Upsample layer
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
-
-        # Main conv layers after concatenation with skip connection
-        self.conv = nn.Sequential(
-            DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, out_channels),
-        )
+        self.conv = DoubleConv(in_ch, out_ch)
 
         # Time embedding
-        self.emb_layer = nn.Sequential(nn.SiLU(), nn.Linear(emb_dim, out_channels))
+        self.emb_layer = nn.Linear(time_dim, out_ch)
 
-        # Conditioning embeddings
-        self.CT_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["CT"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-        self.WR_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["WR"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-        self.COMP_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["COMP"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-        self.MFR_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["MFR"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
-        self.MAG_label = nn.Sequential(
-            nn.Embedding(cond_dims["num_levels"]["MAG"], cond_dims["embedding_dim"]),
-            nn.Linear(cond_dims["embedding_dim"], self.imsize * self.imsize),
-        )
+        # Conditional embeddings
+        if cond_dims is not None:
+            self.cond_embeddings = nn.ModuleDict()
+            for k, n_levels in cond_dims["num_levels"].items():
+                self.cond_embeddings[k] = nn.Embedding(
+                    n_levels, cond_dims["embedding_dim"]
+                )
+            self.cond_proj = nn.Linear(
+                len(cond_dims["num_levels"]) * cond_dims["embedding_dim"], out_ch
+            )
 
-    def forward(self, x, skip_x, t, CT, WR, COMP, MFR, MAG):
-        """
-        Forward pass.
-
-        Args:
-            x (Tensor): input feature map [B, C, H, W]
-            skip_x (Tensor): skip connection feature map from down path
-            t (Tensor): time embedding [B, emb_dim]
-            CT, WR, COMP, MFR, MAG (Tensor): encoded conditioning indices
-        """
-        # Upsample and concatenate skip connection
+    def forward(self, x, x_skip, t, CT=None, WR=None, COMP=None, MFR=None, MAG=None):
         x = self.up(x)
-        x = torch.cat([skip_x, x], dim=1)
-
-        # Main conv
+        x = torch.cat([x_skip, x], dim=1)
         x = self.conv(x)
 
-        # Conditioning embeddings
-        ctemb = self.CT_label(CT).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        wremb = self.WR_label(WR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        compemb = self.COMP_label(COMP).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        mfremb = self.MFR_label(MFR).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
-        magemb = self.MAG_label(MAG).view(x.shape[0], 1, x.shape[-2], x.shape[-1])
+        # --- Time embedding ---
+        t_emb = UNet_conditional.get_time_embedding(self, t, self.time_dim)
+        t_emb = self.emb_layer(t_emb)
 
-        # Concatenate conditioning embeddings along channel dimension
-        x = torch.cat((x, ctemb, wremb, compemb, mfremb, magemb), dim=1)
+        # --- Conditional embedding ---
+        cond_emb = 0
+        if hasattr(self, "cond_embeddings") and CT is not None:
+            embeds = []
+            for k, v in zip(
+                ["CT", "WR", "COMP", "MFR", "MAG"], [CT, WR, COMP, MFR, MAG]
+            ):
+                embeds.append(self.cond_embeddings[k](v))
+            cond_emb = torch.cat(embeds, dim=1)
+            cond_emb = self.cond_proj(cond_emb)
 
-        # Add time embedding
-        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
-        return x + emb
+        emb = t_emb + cond_emb
+        emb = emb[:, :, None, None].expand(-1, -1, x.shape[-2], x.shape[-1])
+        x = x + emb
+        return x
 
 
 class UNet(nn.Module):
@@ -358,7 +291,10 @@ class UNet_conditional(nn.Module):
         self.time_dim = time_dim
         self.cond_dims = cond_dims
 
+        # Initial conv
         self.inc = DoubleConv(c_in, 16)
+
+        # Down path
         self.down1 = Down(16, 32, 256, cond_dims)
         self.sa1 = SelfAttention4(32, 256)
         self.down2 = Down(32, 64, 128, cond_dims)
@@ -391,25 +327,47 @@ class UNet_conditional(nn.Module):
         self.up1 = Up(32, 8, 512, cond_dims)
         self.as1 = SelfAttention4(8, 512)
 
+        # Output conv
         self.outc = nn.Conv2d(8, c_out, kernel_size=1)
 
     def pos_encoding(self, t, channels):
-        inv_freq = 1.0 / (
-            10000 ** (torch.arange(0, channels, 2).float().to(device) / channels)
+        """
+        Sinusoidal positional encoding for diffusion timesteps.
+        Returns [B, channels, 1, 1] for broadcasting in Down/Up blocks.
+        """
+        device = t.device
+        t = t.view(-1)  # ensure shape (B,)
+        freqs = 1.0 / (
+            10000 ** (torch.arange(0, channels, 2, device=device).float() / channels)
         )
-        pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
-        pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
-        return torch.cat([pos_enc_a, pos_enc_b], dim=-1)
+        pos_enc_a = torch.sin(t[:, None] * freqs)
+        pos_enc_b = torch.cos(t[:, None] * freqs)
+        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
+        return pos_enc.unsqueeze(-1).unsqueeze(-1)  # [B, channels, 1, 1]
 
     def forward(self, x, t, CT, WR, COMP, MFR, MAG):
-        # Time positional encoding
-        t = t.unsqueeze(-1).type(torch.float)
-        t = self.pos_encoding(t, self.time_dim)
+        """
+        Forward pass for conditional UNet.
 
-        # Downsampling
-        x0 = self.inc(x)
+        Args:
+            x (Tensor): input image [B, C, H, W]
+            t (Tensor): timestep [B]
+            CT, WR, COMP, MFR, MAG (Tensor): conditioning indices [B]
+        """
+        B = x.size(0)
+
+        # Ensure t is 1D
+        t = t.view(B).float()
+
+        # ---------------------------
+        # Downsampling path
+        # ---------------------------
+        x0 = self.inc(x)  # initial conv
+
         x1 = self.down1(x0, t, CT, WR, COMP, MFR, MAG)
+        x1 = self.sa1(x1)
         x2 = self.down2(x1, t, CT, WR, COMP, MFR, MAG)
+        x2 = self.sa2(x2)
         x3 = self.down3(x2, t, CT, WR, COMP, MFR, MAG)
         x3 = self.sa3(x3)
         x4 = self.down4(x3, t, CT, WR, COMP, MFR, MAG)
@@ -419,12 +377,16 @@ class UNet_conditional(nn.Module):
         x6 = self.down6(x5, t, CT, WR, COMP, MFR, MAG)
         x6 = self.sa6(x6)
 
+        # ---------------------------
         # Bottleneck
+        # ---------------------------
         x6 = self.bot1(x6)
         x6 = self.bot2(x6)
         x6 = self.bot3(x6)
 
-        # Upsampling
+        # ---------------------------
+        # Upsampling path
+        # ---------------------------
         x = self.up6(x6, x5, t, CT, WR, COMP, MFR, MAG)
         x = self.as6(x)
         x = self.up5(x, x4, t, CT, WR, COMP, MFR, MAG)
@@ -436,5 +398,89 @@ class UNet_conditional(nn.Module):
         x = self.up2(x, x1, t, CT, WR, COMP, MFR, MAG)
         x = self.up1(x, x0, t, CT, WR, COMP, MFR, MAG)
 
-        # Final output
-        return self.outc(x)
+        # ---------------------------
+        # Output
+        # ---------------------------
+        out = self.outc(x)
+        return out
+
+    def get_time_embedding(self, t, time_dim):
+        """
+        Sinusoidal positional encoding for diffusion timesteps.
+        Returns [B, time_dim]
+        """
+        device = t.device
+        B = t.size(0)
+        t = t.view(B, 1).float()  # [B,1]
+        half_dim = time_dim // 2
+        emb = torch.log(torch.tensor(10000.0, device=device)) / (half_dim - 1)
+        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
+        emb = t * emb  # [B, half_dim]
+        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)  # [B, time_dim]
+        if time_dim % 2 == 1:  # pad if odd
+            emb = F.pad(emb, (0, 1))
+        return emb  # [B, time_dim]
+
+
+class UNet_conditional_small(nn.Module):
+    def __init__(self, c_in=1, c_out=1, time_dim=512, cond_dims=None):
+        super().__init__()
+        self.time_dim = time_dim
+        self.cond_dims = cond_dims
+
+        # Initial conv
+        self.inc = DoubleConv(c_in, 16)
+
+        # Down path
+        self.down1 = Down(16, 32, time_dim, cond_dims)  # x1: 32
+        self.down2 = Down(32, 64, time_dim, cond_dims)  # x2: 64
+        self.down3 = Down(64, 128, time_dim, cond_dims)  # x3: 128
+
+        # Bottleneck
+        self.bot1 = DoubleConv(128, 128)
+        self.bot2 = DoubleConv(128, 128)
+
+        # Up path — **in_ch = skip + current**
+        self.up3 = Up(128 + 64, 64, time_dim, cond_dims)  # x3 + x2
+        self.up2 = Up(64 + 32, 32, time_dim, cond_dims)  # result + x1
+        self.up1 = Up(32 + 16, 16, time_dim, cond_dims)  # result + x0
+
+        # Output conv
+        self.outc = nn.Conv2d(16, c_out, kernel_size=1)
+
+    def forward(self, x, t, CT, WR, COMP, MFR, MAG):
+        B = x.size(0)
+        t = t.view(B).float()
+
+        # Down
+        x0 = self.inc(x)  # 16
+        x1 = self.down1(x0, t, CT, WR, COMP, MFR, MAG)  # 32
+        x2 = self.down2(x1, t, CT, WR, COMP, MFR, MAG)  # 64
+        x3 = self.down3(x2, t, CT, WR, COMP, MFR, MAG)  # 128
+
+        # Bottleneck
+        x3 = self.bot1(x3)
+        x3 = self.bot2(x3)
+
+        # Up
+        x = self.up3(x3, x2, t, CT, WR, COMP, MFR, MAG)  # 64
+        x = self.up2(x, x1, t, CT, WR, COMP, MFR, MAG)  # 32
+        x = self.up1(x, x0, t, CT, WR, COMP, MFR, MAG)  # 16
+
+        out = self.outc(x)
+        return out
+
+    def get_time_embedding(self, t, time_dim):
+        device = t.device
+        B = t.size(0)
+        t = t.view(B, 1).float()
+        half_dim = time_dim // 2
+        emb = torch.log(torch.tensor(10000.0, device=device)) / (half_dim - 1)
+        emb = torch.exp(
+            torch.arange(half_dim, device=device, dtype=torch.float32) * -emb
+        )
+        emb = t * emb
+        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
+        if time_dim % 2 == 1:
+            emb = F.pad(emb, (0, 1))
+        return emb
