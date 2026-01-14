@@ -115,6 +115,8 @@ label_dict = {
 
 
 # fmt: on
+
+
 # Define the center crop transform
 class CenterCrop(object):
     def __init__(self, size):
@@ -133,13 +135,12 @@ class CenterCrop(object):
 
 # Define paths
 current_dir = os.getcwd()
-whole_dir = str(current_dir) + "\Training\Cropped_images"
+whole_dir = os.path.join(current_dir, "Training", "Cropped_images")
 training_data_dir = os.path.join(current_dir, "Training", "training_data")
 cropped_images_dir = os.path.join(current_dir, "Training", "Cropped_images")
 
 # Create the cropped_images directory if it doesn't exist
 os.makedirs(cropped_images_dir, exist_ok=True)
-
 
 # Define the whole transform with center crop
 whole_transform = transforms.Compose(
