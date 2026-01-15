@@ -73,7 +73,7 @@ temp/
 tmp/
 original_images and calculations from OT/
 Segmentation_ilastik/
-External/DDPM/Generated-Images/All_CDDM_HR_Cat_V_6.pth.tar
+external/DDPM/Generated-Images/All_CDDM_HR_Cat_V_6.pth.tar
 
 
 external/DDPM/Training/training_data/*
@@ -83,7 +83,7 @@ external/DDPM/Generated-Images/*
 !external/DDPM/Training/training_data/.gitkeep
 !external/DDPM/Training/cropped_images/.gitkeep
 !external/DDPM/Training/.gitkeep
-external/DDPM/Generated-Images/.gitkeep
+!external/DDPM/Generated-Images/.gitkeep
 
 # ============================================================
 # Logs and reports

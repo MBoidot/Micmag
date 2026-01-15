@@ -38,9 +38,7 @@ cropped_images_dir = os.path.join(current_dir, "Training", "cropped_images")
 
 # Create the cropped_images directory if it doesn't exist
 os.makedirs(cropped_images_dir, exist_ok=True)
-
 df = pd.read_csv("cast_information.csv", sep=";")
-
 
 # -------------------------------------------------
 # Build cast information dictionary
@@ -188,7 +186,11 @@ reverse_transforms = transforms.Compose(
 )
 
 train_loader = torch.utils.data.DataLoader(
-    dataset=train_dataset, batch_size=batch_size, shuffle=True
+    dataset=train_dataset,
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=0,
+    pin_memory=False,
 )
 
 
