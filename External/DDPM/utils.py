@@ -19,26 +19,57 @@ def show_images(images, index, label):
     plt.show()
 
 
-def show_grids(images, labels, n_epoch, label_dict):
-    labels_title = []
-    for i in labels:
-        labels_title.append(label_dict[i.item()])
-    fig = plt.figure(figsize=(40.0, 40.0))
-    grid = ImageGrid(fig, 111, nrows_ncols=(2, 2), axes_pad=0.5)
-    j = 0
-    for ax, im in zip(grid, images.cpu().view(-1, image_size, image_size)):
+import os
+
+
+def show_grids(images, n_epoch, current_dir, titles=None, suffix=None, image_size=512):
+    """
+    Display and save a grid of images.
+
+    Args:
+        images (Tensor): [B, H, W] ou [B, 1, H, W]
+        n_epoch (int): epoch number, used for filename
+        current_dir (str): path to save images
+        titles (list of str, optional): titles for each subplot
+        suffix (str, optional): additional string for filename
+        image_size (int, optional): height/width of square images
+    """
+    n_images = images.size(0)
+    ncols = 2
+    nrows = (n_images + 1) // ncols
+
+    fig = plt.figure(figsize=(ncols * 10, nrows * 10))
+    grid = ImageGrid(fig, 111, nrows_ncols=(nrows, ncols), axes_pad=0.5)
+
+    for j, (ax, im) in enumerate(
+        zip(grid, images.cpu().view(-1, image_size, image_size))
+    ):
         ax.imshow(im, cmap="gray")
-        ax.title.set_text(labels_title[j])
-        ax.title.set_size(28)
-        # fig.gca().set_title(labelt[i])
-        j += 1
-    # plt.show()
-    figname = str(current_dir) + "/Generated-Images/" + str(1200 + n_epoch)
+        if titles is not None:
+            ax.set_title(titles[j], fontsize=20)
+        ax.axis("off")
+
+    # --- ensure output directory exists ---
+    save_dir = os.path.join(current_dir, "Generated-Images")
+    os.makedirs(save_dir, exist_ok=True)  # crée le dossier si absent
+
+    # --- build filename ---
+    figname = os.path.join(save_dir, str(n_epoch))
+    if suffix is not None:
+        figname += f"_{suffix}"
+    figname += ".png"
+
     fig.savefig(figname, bbox_inches="tight")
     plt.close(fig)
 
 
-def save_model(address):
+def save_model(address, model, ema_model, optimizer):
+    """
+    Save a checkpoint containing:
+      - model
+      - ema_model
+      - optimizer
+    """
     checkpoint = {
         "model_state": model.state_dict(),
         "ema_model_state": ema_model.state_dict(),
