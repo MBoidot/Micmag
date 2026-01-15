@@ -21,11 +21,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
 n_sampled_images = 2
-n_epoch = 4
+n_epoch = 400
 log_interval = 10  # print loss every 10 batches
-n_ax = max(1, int(n_epoch / 2))
+n_ax = max(1, int(n_epoch / 40))
 total_loss_min = np.inf
-image_size = 64
+image_size = 128
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
@@ -40,6 +40,15 @@ cropped_images_dir = os.path.join(current_dir, "Training", "cropped_images")
 os.makedirs(cropped_images_dir, exist_ok=True)
 
 df = pd.read_csv("cast_information.csv", sep=";")
+
+
+# -------------------------------------------------
+# Build cast information dictionary
+# CT : Cast temperature
+# WR : Wheel Roughness
+# COMP : Composition
+# MFR : Melt flow rate - related to thickness
+# -------------------------------------------------
 
 cast_info = {}
 for index, row in df.iterrows():
@@ -414,86 +423,90 @@ for e in range(1, n_epoch + 1):
     # SAMPLING / VISUALIZATION
     # ==========================
     if e % n_ax == 0:
-        print(f"[Epoch {e}] Sampling with EMA model...")
+        print(f"[Epoch {e}] Sampling...")
 
         with torch.no_grad():
             # ---------- RANDOM CONDITIONS ----------
             test_labels = torch.randint(
                 0, num_classes, (n_sampled_images,), device=device
             )
+            cond_random = get_conditions_from_labels(test_labels, class_table, device)
 
-            cond = get_conditions_from_labels(test_labels, class_table, device)
-
-            ema_images = diffusion.sample(
+            ema_random_images = diffusion.sample(
                 ema_model,
                 n_sampled_images,
-                **cond,
+                **cond_random,
                 cfg_scale=0,
                 verbose=SAMPLING_VERBOSE,
             )
-
-            ema_images = reverse_transforms(ema_images)
-            phys_values = decode_physical_values(cond, decode_maps)
+            ema_random_images = reverse_transforms(ema_random_images)
+            phys_random = decode_physical_values(cond_random, decode_maps)
+            titles_random = [format_physical_label(p) for p in phys_random]
 
             if PRINT_SAMPLING_INFO:
                 print("Sampled random conditions:")
-                for i, p in enumerate(phys_values):
+                for i, p in enumerate(phys_random):
                     print(f"  [{i}] {format_physical_label(p)}")
 
-            titles = [format_physical_label(p) for p in phys_values]
-
             show_grids(
-                ema_images,
+                ema_random_images,
                 n_epoch=e,
                 current_dir=current_dir,
-                titles=titles,
-                suffix="EMA_training_sample",
+                titles=titles_random,
+                suffix="EMA_RANDOM_CONDITIONS",
                 image_size=image_size,
             )
 
             # ---------- FIXED-CONDITION SAMPLING ----------
             print(f"[Epoch {e}] Fixed-condition EMA sampling...")
-
-            fixed_images = diffusion.sample(
+            ema_fixed_images = diffusion.sample(
                 ema_model,
                 len(FIXED_LABELS),
                 **FIXED_COND,
                 cfg_scale=0,
                 verbose=SAMPLING_VERBOSE,
             )
-
-            fixed_images = reverse_transforms(fixed_images)
+            ema_fixed_images = reverse_transforms(ema_fixed_images)
             fixed_phys = decode_physical_values(FIXED_COND, decode_maps)
             fixed_titles = [format_physical_label(p) for p in fixed_phys]
 
             show_grids(
-                ema_images,
+                ema_fixed_images,
                 n_epoch=e,
                 current_dir=current_dir,
-                titles=titles,
-                suffix="EMA-RANDOM",
+                titles=fixed_titles,
+                suffix="EMA_FIXED_CONDITIONS",
                 image_size=image_size,
             )
 
             # ---------- EMA vs RAW COMPARISON ----------
             print(f"[Epoch {e}] EMA vs RAW comparison...")
-
-            raw_images = diffusion.sample(
+            raw_fixed_images = diffusion.sample(
                 model,
                 len(FIXED_LABELS),
                 **FIXED_COND,
                 cfg_scale=0,
                 verbose=False,
             )
+            raw_fixed_images = reverse_transforms(raw_fixed_images)
 
-            raw_images = reverse_transforms(raw_images)
-
+            # Show EMA vs RAW side by side
+            # You could combine both in a single grid or save separately
             show_grids(
-                ema_images,
+                ema_fixed_images,
                 n_epoch=e,
                 current_dir=current_dir,
-                titles=titles,
-                suffix="EMA-RANDOM",
+                titles=fixed_titles,
+                suffix="EMA_FIXED_COMPARISON",
+                image_size=image_size,
+            )
+
+            show_grids(
+                raw_fixed_images,
+                n_epoch=e,
+                current_dir=current_dir,
+                titles=fixed_titles,
+                suffix="RAW_FIXED_COMPARISON",
                 image_size=image_size,
             )
 
@@ -504,6 +517,10 @@ for e in range(1, n_epoch + 1):
             save_model(save_dir, model, ema_model, optimizer)
 
             print(f"[Epoch {e}] Sampling & checkpoint saved.\n")
+
+        # ---------- GPU memory summary ----------
+        if device.type == "cuda":
+            print(torch.cuda.memory_summary(device=device))
 
 
 if device.type == "cuda":
