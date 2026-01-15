@@ -50,7 +50,7 @@ def show_grids(images, n_epoch, current_dir, titles=None, suffix=None, image_siz
         ax.axis("off")
 
     # --- ensure output directory exists ---
-    save_dir = os.path.join(current_dir, "Generated-Images")
+    save_dir = os.path.join(current_dir, "Generated_Images_training")
     os.makedirs(save_dir, exist_ok=True)  # crée le dossier si absent
 
     # --- build filename ---

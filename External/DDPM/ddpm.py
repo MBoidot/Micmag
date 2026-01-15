@@ -16,10 +16,12 @@ import copy
 from utils import *
 from modules import *
 import pandas as pd
+import torchvision.transforms.functional as TF
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
+N_CROPS = 4
 n_sampled_images = 2
 n_epoch = 400
 log_interval = 10  # print loss every 10 batches
@@ -44,8 +46,8 @@ df = pd.read_csv("cast_information.csv", sep=";")
 # Build cast information dictionary
 # CT : Cast temperature
 # WR : Wheel Roughness
-# COMP : Composition
-# MFR : Melt flow rate - related to thickness
+# COMP : Composition or alloy type
+# MFR : Melt flow rate - related to thickness unit ??
 # -------------------------------------------------
 
 cast_info = {}
@@ -78,11 +80,10 @@ for subdir, _, files in os.walk(training_data_dir):
 # Convert to tensor for convenience
 raw_class_table = torch.tensor(raw_class_table)
 
+
 # -------------------------------------------------
 # Encode physical values -> discrete indices
 # -------------------------------------------------
-
-
 def encode_levels(values):
     """
     values: 1D tensor
@@ -147,6 +148,25 @@ class CenterCrop(object):
         return img
 
 
+class MultiHorizontalCenterCrop:
+    def __init__(self, crop_size=128, n_crops=4):
+        self.crop_size = crop_size
+        self.n_crops = n_crops
+
+    def __call__(self, img):
+        # img is PIL.Image
+        w, h = img.size
+        cs = self.crop_size
+        top = (h - cs) // 2
+        max_left = w - cs
+
+        if self.n_crops == 1:
+            xs = [max_left // 2]
+        else:
+            xs = torch.linspace(0, max_left, self.n_crops)
+        return [TF.crop(img, top, int(x), cs, cs) for x in xs]
+
+
 # Define the whole transform with center crop
 # The filter work, however the images are not homogeneous after transform
 # automoatic segmentaition might fail for instance.
@@ -156,20 +176,49 @@ class CenterCrop(object):
 
 whole_transform = transforms.Compose(
     [
-        transforms.ToTensor(),
         transforms.Grayscale(),
-        CenterCrop(image_size),
-        transforms.Lambda(lambda t: (t * 2) - 1),
+        MultiHorizontalCenterCrop(crop_size=image_size, n_crops=N_CROPS),
+        transforms.Lambda(
+            lambda crops: [transforms.ToTensor()(c) * 2 - 1 for c in crops]
+        ),
     ]
 )
 
+
+class MultiCropImageFolder(datasets.ImageFolder):
+    def __getitem__(self, index):
+        path, label = self.samples[index]
+        img = self.loader(path)
+        crops = self.transform(img)
+        return crops, label
+
+
+class FlattenedMultiCropDataset(torch.utils.data.Dataset):
+    def __init__(self, base_dataset):
+        self.base = base_dataset
+        self.n_crops = len(base_dataset[0][0])
+
+    def __len__(self):
+        return len(self.base) * self.n_crops
+
+    def __getitem__(self, idx):
+        img_idx = idx // self.n_crops
+        crop_idx = idx % self.n_crops
+        crops, label = self.base[img_idx]
+        return crops[crop_idx], label
+
+
 # Load the dataset and apply the transform
-train_dataset = datasets.ImageFolder(training_data_dir, transform=whole_transform)
+base_dataset = MultiCropImageFolder(training_data_dir, transform=whole_transform)
+
+train_dataset = FlattenedMultiCropDataset(base_dataset)
 
 # Save the cropped images to the cropped_images subfolder
-for i, (images, labels) in enumerate(train_dataset):
-    image_path = os.path.join(cropped_images_dir, f"image_{i}_{labels}.png")
-    torchvision.utils.save_image(images, image_path)
+for i in range(len(base_dataset)):
+    crops, label = base_dataset[i]
+    for j, crop in enumerate(crops):
+        path = os.path.join(cropped_images_dir, f"img_{i}_crop_{j}_label_{label}.png")
+        torchvision.utils.save_image((crop + 1) / 2, path)
 
 aug_transform = transforms.Compose(
     [
@@ -349,7 +398,6 @@ def format_physical_label(phys_dict):
 # CONFIG LOGGING / DEBUG
 # ==========================
 COND_KEYS = list(num_levels.keys())
-
 PRINT_BATCH_EVERY = 0  # 0 pour désactiver
 PRINT_SAMPLING_INFO = True
 SAMPLING_VERBOSE = True  # prints pendant le sampling long
@@ -514,7 +562,7 @@ for e in range(1, n_epoch + 1):
 
             # ---------- CHECKPOINT ----------
             save_dir = os.path.join(
-                current_dir, "Generated-Images", "All_CDDM_HR_Cat_V_6.pth.tar"
+                current_dir, "Generated_Images_training", "All_CDDM_HR_Cat_V_6.pth.tar"
             )
             save_model(save_dir, model, ema_model, optimizer)
 
@@ -523,7 +571,6 @@ for e in range(1, n_epoch + 1):
         # ---------- GPU memory summary ----------
         if device.type == "cuda":
             print(torch.cuda.memory_summary(device=device))
-
 
 if device.type == "cuda":
     print(torch.cuda.memory_summary(device=device))
