@@ -35,53 +35,57 @@ class EMA:
 
 
 class SelfAttention2(nn.Module):
-    def __init__(self, channels, size):
-        super(SelfAttention2, self).__init__()
+    def __init__(self, channels):
+        super().__init__()
         self.channels = channels
-        self.size = size
         self.mha = nn.MultiheadAttention(channels, 2, batch_first=True)
-        self.ln = nn.LayerNorm([channels])
+        self.ln = nn.LayerNorm(channels)
         self.ff_self = nn.Sequential(
-            nn.LayerNorm([channels]),
+            nn.LayerNorm(channels),
             nn.Linear(channels, channels),
             nn.GELU(),
             nn.Linear(channels, channels),
         )
 
     def forward(self, x):
-        x = x.view(-1, self.channels, self.size * self.size).swapaxes(1, 2)
+        # x: [B, C, H, W]
+        B, C, H, W = x.shape
+
+        x = x.view(B, C, H * W).permute(0, 2, 1)  # [B, HW, C]
         x_ln = self.ln(x)
-        attention_value, _ = self.mha(x_ln, x_ln, x_ln)
-        attention_value = attention_value + x
-        attention_value = self.ff_self(attention_value) + attention_value
-        return attention_value.swapaxes(2, 1).view(
-            -1, self.channels, self.size, self.size
-        )
+
+        attn, _ = self.mha(x_ln, x_ln, x_ln)
+        x = attn + x
+        x = self.ff_self(x) + x
+
+        return x.permute(0, 2, 1).view(B, C, H, W)
 
 
 class SelfAttention4(nn.Module):
-    def __init__(self, channels, size):
-        super(SelfAttention4, self).__init__()
+    def __init__(self, channels):
+        super().__init__()
         self.channels = channels
-        self.size = size
         self.mha = nn.MultiheadAttention(channels, 4, batch_first=True)
-        self.ln = nn.LayerNorm([channels])
+        self.ln = nn.LayerNorm(channels)
         self.ff_self = nn.Sequential(
-            nn.LayerNorm([channels]),
+            nn.LayerNorm(channels),
             nn.Linear(channels, channels),
             nn.GELU(),
             nn.Linear(channels, channels),
         )
 
     def forward(self, x):
-        x = x.view(-1, self.channels, self.size * self.size).swapaxes(1, 2)
+        # x: [B, C, H, W]
+        B, C, H, W = x.shape
+
+        x = x.view(B, C, H * W).permute(0, 2, 1)
         x_ln = self.ln(x)
-        attention_value, _ = self.mha(x_ln, x_ln, x_ln)
-        attention_value = attention_value + x
-        attention_value = self.ff_self(attention_value) + attention_value
-        return attention_value.swapaxes(2, 1).view(
-            -1, self.channels, self.size, self.size
-        )
+
+        attn, _ = self.mha(x_ln, x_ln, x_ln)
+        x = attn + x
+        x = self.ff_self(x) + x
+
+        return x.permute(0, 2, 1).view(B, C, H, W)
 
 
 class DoubleConv(nn.Module):
@@ -131,7 +135,6 @@ class Down(nn.Module):
             self, t, self.time_dim
         )  # [B, time_dim]
         t_emb = self.emb_layer(t_emb)  # [B, out_ch]
-
         # --- Conditional embedding ---
         cond_emb = 0
         if hasattr(self, "cond_embeddings") and CT is not None:
@@ -277,57 +280,130 @@ class UNet(nn.Module):
 
 
 class UNet_conditional(nn.Module):
-    def __init__(self, c_in=1, c_out=1, time_dim=512, cond_dims=None):
+    def __init__(
+        self,
+        c_in=1,
+        c_out=1,
+        cond_dims=None,
+        image_size=256,
+        time_dim=128,
+        attention_from=32,
+        attention_to=8,
+    ):
         """
-        Conditional UNet with Down/Up blocks supporting arbitrary numbers of levels per condition.
+        Conditional UNet with configurable self-attention resolutions.
 
         Args:
-            c_in (int): input channels (image)
+            c_in (int): input channels
             c_out (int): output channels
-            time_dim (int): dimension of time embedding
-            cond_dims (dict): {'num_levels': {...}, 'embedding_dim': int}
+            cond_dims (dict): conditioning description
+            image_size (int): input image resolution (square)
+            attention_from (int): max resolution for self-attention
+            attention_to (int): min resolution for self-attention
         """
         super().__init__()
-        self.time_dim = time_dim
         self.cond_dims = cond_dims
+        self.time_dim = time_dim
 
+        '''
+        # version to restore after debugging
+        def make_attention(channels, resolution):
+            """
+            Decide which self-attention layer to use for a feature map.
+
+            Args:
+                channels (int): number of channels in the feature map
+                resolution (int): H or W of the square feature map
+
+            Returns:
+                nn.Module: SelfAttention2, SelfAttention4, or Identity
+            """
+            # Determine number of attention heads based on channels
+            n_heads = 2 if channels <= 64 else 4
+
+            # Compute minimal spatial size required to safely apply MultiheadAttention
+            min_res = n_heads  # need at least n_heads positions to attend
+
+            if resolution < min_res:
+                return nn.Identity()
+
+            # Only apply attention if resolution is in the attention range
+            if attention_to <= resolution <= attention_from:
+                if n_heads == 2:
+                    return SelfAttention2(channels)
+                else:
+                    return SelfAttention4(channels)
+            else:
+                return nn.Identity()'''
+
+        def make_attention(channels, resolution):
+            return nn.Identity()
+
+        # ---------------------------
         # Initial conv
+        # ---------------------------
         self.inc = DoubleConv(c_in, 16)
 
-        # Down path
-        self.down1 = Down(16, 32, 256, cond_dims)
-        self.sa1 = SelfAttention4(32, 256)
-        self.down2 = Down(32, 64, 128, cond_dims)
-        self.sa2 = SelfAttention4(64, 128)
-        self.down3 = Down(64, 128, 64, cond_dims)
-        self.sa3 = SelfAttention2(128, 64)
-        self.down4 = Down(128, 256, 32, cond_dims)
-        self.sa4 = SelfAttention4(256, 32)
-        self.down5 = Down(256, 512, 16, cond_dims)
-        self.sa5 = SelfAttention4(512, 16)
-        self.down6 = Down(512, 512, 8, cond_dims)
-        self.sa6 = SelfAttention4(512, 8)
+        # ---------------------------
+        # Downsampling path
+        # ---------------------------
+        res = image_size
 
+        self.down1 = Down(16, 32, self.time_dim, cond_dims)
+        res //= 2
+        self.sa1 = make_attention(32, res)
+
+        self.down2 = Down(32, 64, self.time_dim, cond_dims)
+        res //= 2
+        self.sa2 = make_attention(64, res)
+
+        self.down3 = Down(64, 128, self.time_dim, cond_dims)
+        res //= 2
+        self.sa3 = make_attention(128, res)
+
+        self.down4 = Down(128, 256, self.time_dim, cond_dims)
+        res //= 2
+        self.sa4 = make_attention(256, res)
+
+        self.down5 = Down(256, 512, self.time_dim, cond_dims)
+        res //= 2
+        self.sa5 = make_attention(512, res)
+
+        self.down6 = Down(512, 512, self.time_dim, cond_dims)
+        res //= 2
+        self.sa6 = make_attention(512, res)
+
+        # ---------------------------
         # Bottleneck
+        # ---------------------------
         self.bot1 = DoubleConv(512, 512)
         self.bot2 = DoubleConv(512, 512)
         self.bot3 = DoubleConv(512, 512)
 
-        # Upsampling
-        self.up6 = Up(1024, 256, 16, cond_dims)
-        self.as6 = SelfAttention4(256, 16)
-        self.up5 = Up(512, 128, 32, cond_dims)
-        self.as5 = SelfAttention4(128, 32)
-        self.up4 = Up(256, 64, 64, cond_dims)
-        self.as4 = SelfAttention4(64, 64)
-        self.up3 = Up(128, 32, 128, cond_dims)
-        self.as3 = SelfAttention2(32, 128)
-        self.up2 = Up(64, 16, 256, cond_dims)
-        self.as2 = SelfAttention4(16, 256)
-        self.up1 = Up(32, 8, 512, cond_dims)
-        self.as1 = SelfAttention4(8, 512)
+        # ---------------------------
+        # Upsampling path
+        # ---------------------------
+        self.up6 = Up(1024, 256, self.time_dim, cond_dims)
+        self.as6 = make_attention(256, res * 2)
 
-        # Output conv
+        self.up5 = Up(512, 128, self.time_dim, cond_dims)
+        self.as5 = make_attention(128, res * 4)
+
+        self.up4 = Up(256, 64, self.time_dim, cond_dims)
+        self.as4 = make_attention(64, res * 8)
+
+        self.up3 = Up(128, 32, self.time_dim, cond_dims)
+        self.as3 = make_attention(32, res * 16)
+
+        self.up2 = Up(64, 16, self.time_dim, cond_dims)
+        self.as2 = make_attention(16, res * 32)
+
+        self.up1 = Up(32, 8, self.time_dim, cond_dims)
+        self.as1 = make_attention(8, res * 64)
+
+        # ---------------------------
+        # Output
+        # ---------------------------
         self.outc = nn.Conv2d(8, c_out, kernel_size=1)
 
     def pos_encoding(self, t, channels):
@@ -345,64 +421,51 @@ class UNet_conditional(nn.Module):
         pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
         return pos_enc.unsqueeze(-1).unsqueeze(-1)  # [B, channels, 1, 1]
 
-    def forward(self, x, t, CT, WR, COMP, MFR, MAG):
-        """
-        Forward pass for conditional UNet.
-
-        Args:
-            x (Tensor): input image [B, C, H, W]
-            t (Tensor): timestep [B]
-            CT, WR, COMP, MFR, MAG (Tensor): conditioning indices [B]
-        """
+    def forward(self, x, t, CT, WR, COMP, MFR, MAG, debug=False):
         B = x.size(0)
-
-        # Ensure t is 1D
         t = t.view(B).float()
 
-        # ---------------------------
-        # Downsampling path
-        # ---------------------------
-        x0 = self.inc(x)  # initial conv
+        x0 = self.inc(x)
+        print("inc:", x0.min(), x0.max())
+        if debug:
+            print("inc:", x0.min().item(), x0.max().item())
+        x1 = self.sa1(self.down1(x0, t, CT, WR, COMP, MFR, MAG))
+        if debug:
+            print("down1:", x1.min().item(), x1.max().item())
+        x2 = self.sa2(self.down2(x1, t, CT, WR, COMP, MFR, MAG))
+        if debug:
+            print("down2:", x2.min().item(), x2.max().item())
+        x3 = self.sa3(self.down3(x2, t, CT, WR, COMP, MFR, MAG))
+        if debug:
+            print("down3:", x3.min().item(), x3.max().item())
+        x4 = self.sa4(self.down4(x3, t, CT, WR, COMP, MFR, MAG))
+        if debug:
+            print("down4:", x4.min().item(), x4.max().item())
+        x5 = self.sa5(self.down5(x4, t, CT, WR, COMP, MFR, MAG))
+        if debug:
+            print("down5:", x5.min().item(), x5.max().item())
+        x6 = self.sa6(self.down6(x5, t, CT, WR, COMP, MFR, MAG))
+        if debug:
+            print("down6:", x6.min().item(), x6.max().item())
 
-        x1 = self.down1(x0, t, CT, WR, COMP, MFR, MAG)
-        x1 = self.sa1(x1)
-        x2 = self.down2(x1, t, CT, WR, COMP, MFR, MAG)
-        x2 = self.sa2(x2)
-        x3 = self.down3(x2, t, CT, WR, COMP, MFR, MAG)
-        x3 = self.sa3(x3)
-        x4 = self.down4(x3, t, CT, WR, COMP, MFR, MAG)
-        x4 = self.sa4(x4)
-        x5 = self.down5(x4, t, CT, WR, COMP, MFR, MAG)
-        x5 = self.sa5(x5)
-        x6 = self.down6(x5, t, CT, WR, COMP, MFR, MAG)
-        x6 = self.sa6(x6)
+        x6 = self.bot1(x6)
+        x6 = self.bot2(x6)
+        x6 = self.bot3(x6)
+        if debug:
+            print("bottleneck:", x6.min().item(), x6.max().item())
 
-        # ---------------------------
-        # Bottleneck
-        # ---------------------------
         x6 = self.bot1(x6)
         x6 = self.bot2(x6)
         x6 = self.bot3(x6)
 
-        # ---------------------------
-        # Upsampling path
-        # ---------------------------
-        x = self.up6(x6, x5, t, CT, WR, COMP, MFR, MAG)
-        x = self.as6(x)
-        x = self.up5(x, x4, t, CT, WR, COMP, MFR, MAG)
-        x = self.as5(x)
-        x = self.up4(x, x3, t, CT, WR, COMP, MFR, MAG)
-        x = self.as4(x)
-        x = self.up3(x, x2, t, CT, WR, COMP, MFR, MAG)
-        x = self.as3(x)
-        x = self.up2(x, x1, t, CT, WR, COMP, MFR, MAG)
-        x = self.up1(x, x0, t, CT, WR, COMP, MFR, MAG)
+        x = self.as6(self.up6(x6, x5, t, CT, WR, COMP, MFR, MAG))
+        x = self.as5(self.up5(x, x4, t, CT, WR, COMP, MFR, MAG))
+        x = self.as4(self.up4(x, x3, t, CT, WR, COMP, MFR, MAG))
+        x = self.as3(self.up3(x, x2, t, CT, WR, COMP, MFR, MAG))
+        x = self.as2(self.up2(x, x1, t, CT, WR, COMP, MFR, MAG))
+        x = self.as1(self.up1(x, x0, t, CT, WR, COMP, MFR, MAG))
 
-        # ---------------------------
-        # Output
-        # ---------------------------
-        out = self.outc(x)
-        return out
+        return self.outc(x)
 
     def get_time_embedding(self, t, time_dim):
         """

@@ -23,14 +23,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 batch_size = 2
 N_CROPS = 4
 n_sampled_images = 2
-n_epoch = 400
+n_epoch = 4
 log_interval = 10  # print loss every 10 batches
-n_ax = max(1, int(n_epoch / 40))
+n_ax = max(1, int(n_epoch / 2))
 total_loss_min = np.inf
-image_size = 128
+image_size = 64
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
-learning_rate = 3e-4
+learning_rate = 1e-5
 
 # Define paths
 current_dir = os.getcwd()
@@ -179,7 +179,9 @@ whole_transform = transforms.Compose(
         transforms.Grayscale(),
         MultiHorizontalCenterCrop(crop_size=image_size, n_crops=N_CROPS),
         transforms.Lambda(
-            lambda crops: [transforms.ToTensor()(c) * 2 - 1 for c in crops]
+            lambda crops: [
+                torch.clamp(transforms.ToTensor()(c) * 2 - 1, -1, 1) for c in crops
+            ]
         ),
     ]
 )
@@ -210,7 +212,6 @@ class FlattenedMultiCropDataset(torch.utils.data.Dataset):
 
 # Load the dataset and apply the transform
 base_dataset = MultiCropImageFolder(training_data_dir, transform=whole_transform)
-
 train_dataset = FlattenedMultiCropDataset(base_dataset)
 
 # Save the cropped images to the cropped_images subfolder
@@ -245,7 +246,7 @@ train_loader = torch.utils.data.DataLoader(
 
 class Diffusion:
     def __init__(
-        self, noise_steps=1000, beta_start=1e-4, beta_end=0.02, img_size=image_size
+        self, noise_steps=100, beta_start=1e-4, beta_end=0.02, img_size=image_size
     ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
@@ -267,8 +268,11 @@ class Diffusion:
         epsilon = torch.randn_like(x)
         return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * epsilon, epsilon
 
-    def sample_timesteps(self, n):
-        return torch.randint(low=1, high=self.noise_steps, size=(n,))
+    def sample_timesteps(self, n, t_min=5):
+        """
+        Sample timesteps uniformly but never below t_min
+        """
+        return torch.randint(low=t_min, high=self.noise_steps, size=(n,), device=device)
 
     def sample(
         self,
@@ -329,8 +333,14 @@ class Diffusion:
         return x
 
 
-model = UNet_conditional_small(
-    c_in=1, c_out=1, time_dim=512, cond_dims=conditioning_config
+model = UNet_conditional(
+    c_in=1,
+    c_out=1,
+    image_size=image_size,
+    time_dim=128,
+    attention_from=16,  # activate when using unet_conditional
+    attention_to=8,  # activate when using unet_conditional
+    cond_dims=conditioning_config,
 ).to(device)
 
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -408,6 +418,13 @@ SAMPLING_VERBOSE = True  # prints pendant le sampling long
 FIXED_LABELS = torch.arange(min(4, num_classes), device=device)
 FIXED_COND = get_conditions_from_labels(FIXED_LABELS, class_table, device)
 
+images, labels = next(iter(train_loader))
+print("DEBUG: images NaN check:", torch.isnan(images).any())  # should be False
+print(
+    "DEBUG: images min/max:", images.min().item(), images.max().item()
+)  # should be ~[-1,1]
+print("DEBUG: labels min/max:", labels.min().item(), labels.max().item())
+
 for e in range(1, n_epoch + 1):
     loss_epoch = 0.0
     t_values_epoch = []
@@ -427,7 +444,9 @@ for e in range(1, n_epoch + 1):
         t = diffusion.sample_timesteps(images.size(0)).to(device)
         x_t, noise = diffusion.noise_images(images, t)
 
-        predicted_noise = model(x_t, t, **cond)
+        # --- model prediction and loss ---
+        predicted_noise = model(x_t, t, **cond, debug=False)
+        predicted_noise = 10.0 * torch.tanh(predicted_noise / 10.0)
 
         loss = mse(noise, predicted_noise)
         loss.backward()
@@ -571,8 +590,3 @@ for e in range(1, n_epoch + 1):
         # ---------- GPU memory summary ----------
         if device.type == "cuda":
             print(torch.cuda.memory_summary(device=device))
-
-if device.type == "cuda":
-    print(torch.cuda.memory_summary(device=device))
-else:
-    print("Device is CPU, skipping CUDA memory summary.")
