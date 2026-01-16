@@ -5,12 +5,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.autograd as autograd
 from torch.autograd import Variable
-from torchvision import datasets, transforms
+from torchvision import transforms
 import matplotlib.pyplot as plt
 from numpy.random import randn
 import torchvision.utils
-from torch.distributions import uniform
-from mpl_toolkits.axes_grid1 import ImageGrid
 import os
 import copy
 from utils import (
@@ -27,21 +25,20 @@ from utils import (
 
 from modules import *
 import pandas as pd
-import torchvision.transforms.functional as TF
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
 N_CROPS = 4
 n_sampled_images = 2
-n_epoch = 2
+n_epoch = 400
 log_interval = 10  # print loss every 10 batches
 n_ax = max(1, int(n_epoch / 80))
 total_loss_min = np.inf
-image_size = 64
+image_size = 128
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
-learning_rate = 1e-5
+learning_rate = 3e-4
 
 # Define paths
 current_dir = os.getcwd()
@@ -91,7 +88,6 @@ for subdir, _, files in os.walk(training_data_dir):
 # Convert to tensor for convenience
 raw_class_table = torch.tensor(raw_class_table)
 
-
 CT_enc, CT_map = encode_levels(raw_class_table[0])
 WR_enc, WR_map = encode_levels(raw_class_table[1])
 COMP_enc, COMP_map = encode_levels(raw_class_table[2])
@@ -108,7 +104,7 @@ n_COMP = len(COMP_map)
 n_MFR = len(MFR_map)
 n_MAG = len(MAG_map)
 
-embedding_dim = 100  # model choice, not data-dependent
+embedding_dim = 32  # model choice, not data-dependent
 
 num_levels = {
     "CT": n_CT,
@@ -311,7 +307,7 @@ SAMPLING_VERBOSE = True  # prints pendant le sampling long
 # FIXED-CONDITION SAMPLING
 # ==========================
 FIXED_LABELS = torch.arange(min(2, num_classes), device=device)
-FIXED_COND = get_conditions_from_labels(FIXED_LABELS, class_table, device)
+FIXED_COND = get_conditions_from_labels(FIXED_LABELS, class_table, COND_KEYS, device)
 
 images, labels = next(iter(train_loader))
 print("DEBUG: images NaN check:", torch.isnan(images).any())  # should be False
@@ -333,7 +329,7 @@ for e in range(1, n_epoch + 1):
         labels = labels.long().to(device)
 
         # --- conditions ---
-        cond = get_conditions_from_labels(labels, class_table, device)
+        cond = get_conditions_from_labels(labels, class_table, COND_KEYS, device)
 
         # --- diffusion ---
         t = diffusion.sample_timesteps(images.size(0)).to(device)

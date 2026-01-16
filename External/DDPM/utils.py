@@ -6,6 +6,8 @@ import torchvision.utils
 from torch.distributions import uniform
 from mpl_toolkits.axes_grid1 import ImageGrid
 import os
+from torchvision import datasets
+import torchvision.transforms.functional as TF
 
 fig = plt.figure(figsize=(100, 100))
 
@@ -137,12 +139,7 @@ def weights_init(m):
         torch.nn.init.zeros_(m.bias)
 
 
-def get_conditions_from_labels(labels, class_table, device):
-    """
-    labels: Tensor [B]
-    class_table: Tensor [n_params, n_classes]
-    returns: dict {param_name: Tensor[B]}
-    """
+def get_conditions_from_labels(labels, class_table, cond_keys, device):
     cond_tensors = class_maker(
         batch_size=labels.size(0),
         labels=labels,
@@ -150,7 +147,7 @@ def get_conditions_from_labels(labels, class_table, device):
     )
 
     cond_dict = {}
-    for key, tensor in zip(COND_KEYS, cond_tensors):
+    for key, tensor in zip(cond_keys, cond_tensors):
         cond_dict[key] = tensor.long().to(device)
 
     return cond_dict
