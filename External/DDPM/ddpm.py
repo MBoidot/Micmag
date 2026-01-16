@@ -23,9 +23,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 batch_size = 2
 N_CROPS = 4
 n_sampled_images = 2
-n_epoch = 4
+n_epoch = 400
 log_interval = 10  # print loss every 10 batches
-n_ax = max(1, int(n_epoch / 2))
+n_ax = max(1, int(n_epoch / 80))
 total_loss_min = np.inf
 image_size = 64
 image_shape = (1, image_size, image_size)
@@ -246,7 +246,7 @@ train_loader = torch.utils.data.DataLoader(
 
 class Diffusion:
     def __init__(
-        self, noise_steps=100, beta_start=1e-4, beta_end=0.02, img_size=image_size
+        self, noise_steps=500, beta_start=1e-4, beta_end=0.02, img_size=image_size
     ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
@@ -268,7 +268,7 @@ class Diffusion:
         epsilon = torch.randn_like(x)
         return sqrt_alpha_hat * x + sqrt_one_minus_alpha_hat * epsilon, epsilon
 
-    def sample_timesteps(self, n, t_min=5):
+    def sample_timesteps(self, n, t_min=1):
         """
         Sample timesteps uniformly but never below t_min
         """

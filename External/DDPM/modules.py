@@ -305,8 +305,8 @@ class UNet_conditional(nn.Module):
         self.cond_dims = cond_dims
         self.time_dim = time_dim
 
-        '''
         # version to restore after debugging
+
         def make_attention(channels, resolution):
             """
             Decide which self-attention layer to use for a feature map.
@@ -334,10 +334,12 @@ class UNet_conditional(nn.Module):
                 else:
                     return SelfAttention4(channels)
             else:
-                return nn.Identity()'''
+                return nn.Identity()
 
+        """
         def make_attention(channels, resolution):
             return nn.Identity()
+        """
 
         # ---------------------------
         # Initial conv
@@ -426,7 +428,6 @@ class UNet_conditional(nn.Module):
         t = t.view(B).float()
 
         x0 = self.inc(x)
-        print("inc:", x0.min(), x0.max())
         if debug:
             print("inc:", x0.min().item(), x0.max().item())
         x1 = self.sa1(self.down1(x0, t, CT, WR, COMP, MFR, MAG))
