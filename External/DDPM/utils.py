@@ -7,8 +7,24 @@ from torch.distributions import uniform
 from mpl_toolkits.axes_grid1 import ImageGrid
 import os
 
-
 fig = plt.figure(figsize=(100, 100))
+
+
+# -------------------------------------------------
+# Encode physical values -> discrete indices
+# -------------------------------------------------
+def encode_levels(values):
+    """
+    values: 1D tensor
+    returns:
+        encoded tensor
+        dict value -> index
+    """
+    unique_vals = torch.unique(values)
+    unique_vals, _ = torch.sort(unique_vals)
+    value_to_idx = {v.item(): i for i, v in enumerate(unique_vals)}
+    encoded = torch.tensor([value_to_idx[v.item()] for v in values])
+    return encoded, value_to_idx
 
 
 def show_images(images, index, label):
@@ -17,9 +33,6 @@ def show_images(images, index, label):
     # ax.set_title(label,fontsize = 40)
     plt.imshow(images.cpu(), cmap="gray")
     plt.show()
-
-
-import os
 
 
 def show_grids(images, n_epoch, current_dir, titles=None, suffix=None, image_size=512):
@@ -122,3 +135,101 @@ def weights_init(m):
     elif classname.find("Norm") != -1:
         torch.nn.init.normal_(m.weight, 1.0, 0.02)
         torch.nn.init.zeros_(m.bias)
+
+
+def get_conditions_from_labels(labels, class_table, device):
+    """
+    labels: Tensor [B]
+    class_table: Tensor [n_params, n_classes]
+    returns: dict {param_name: Tensor[B]}
+    """
+    cond_tensors = class_maker(
+        batch_size=labels.size(0),
+        labels=labels,
+        class_table=class_table,
+    )
+
+    cond_dict = {}
+    for key, tensor in zip(COND_KEYS, cond_tensors):
+        cond_dict[key] = tensor.long().to(device)
+
+    return cond_dict
+
+
+def decode_physical_values(cond_dict, decode_maps):
+    """
+    cond_dict: dict {param: Tensor[B]}
+    returns: list of dicts [{param: physical_value}, ...]
+    """
+    B = next(iter(cond_dict.values())).size(0)
+    decoded = []
+
+    for i in range(B):
+        entry = {}
+        for k, tensor in cond_dict.items():
+            idx = tensor[i].item()
+            entry[k] = list(decode_maps[k].keys())[idx]
+        decoded.append(entry)
+    return decoded
+
+
+def format_physical_label(phys_dict):
+    return " | ".join(f"{k}={v}" for k, v in phys_dict.items())
+
+
+# Define the center crop transform
+class CenterCrop(object):
+    def __init__(self, size):
+        self.size = size
+
+    def __call__(self, img):
+        # Get the dimensions of the image
+        _, height, width = img.shape
+        # Calculate the starting coordinates for the crop
+        start_h = (height - self.size) // 2
+        start_w = (width - self.size) // 2
+        # Perform the crop
+        img = img[:, start_h : start_h + self.size, start_w : start_w + self.size]
+        return img
+
+
+class MultiHorizontalCenterCrop:
+    def __init__(self, crop_size=128, n_crops=4):
+        self.crop_size = crop_size
+        self.n_crops = n_crops
+
+    def __call__(self, img):
+        # img is PIL.Image
+        w, h = img.size
+        cs = self.crop_size
+        top = (h - cs) // 2
+        max_left = w - cs
+
+        if self.n_crops == 1:
+            xs = [max_left // 2]
+        else:
+            xs = torch.linspace(0, max_left, self.n_crops)
+        return [TF.crop(img, top, int(x), cs, cs) for x in xs]
+
+
+class MultiCropImageFolder(datasets.ImageFolder):
+    def __getitem__(self, index):
+        path, label = self.samples[index]
+        img = self.loader(path)
+        crops = self.transform(img)
+        return crops, label
+
+
+class FlattenedMultiCropDataset(torch.utils.data.Dataset):
+    def __init__(self, base_dataset):
+        self.base = base_dataset
+        self.n_crops = len(base_dataset[0][0])
+
+    def __len__(self):
+        return len(self.base) * self.n_crops
+
+    def __getitem__(self, idx):
+        img_idx = idx // self.n_crops
+        crop_idx = idx % self.n_crops
+        crops, label = self.base[img_idx]
+        return crops[crop_idx], label

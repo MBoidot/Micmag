@@ -13,7 +13,18 @@ from torch.distributions import uniform
 from mpl_toolkits.axes_grid1 import ImageGrid
 import os
 import copy
-from utils import *
+from utils import (
+    encode_levels,
+    get_conditions_from_labels,
+    show_grids,
+    save_model,
+    decode_physical_values,
+    format_physical_label,
+    MultiHorizontalCenterCrop,
+    MultiCropImageFolder,
+    FlattenedMultiCropDataset,
+)
+
 from modules import *
 import pandas as pd
 import torchvision.transforms.functional as TF
@@ -23,7 +34,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 batch_size = 2
 N_CROPS = 4
 n_sampled_images = 2
-n_epoch = 400
+n_epoch = 2
 log_interval = 10  # print loss every 10 batches
 n_ax = max(1, int(n_epoch / 80))
 total_loss_min = np.inf
@@ -81,23 +92,6 @@ for subdir, _, files in os.walk(training_data_dir):
 raw_class_table = torch.tensor(raw_class_table)
 
 
-# -------------------------------------------------
-# Encode physical values -> discrete indices
-# -------------------------------------------------
-def encode_levels(values):
-    """
-    values: 1D tensor
-    returns:
-        encoded tensor
-        dict value -> index
-    """
-    unique_vals = torch.unique(values)
-    unique_vals, _ = torch.sort(unique_vals)
-    value_to_idx = {v.item(): i for i, v in enumerate(unique_vals)}
-    encoded = torch.tensor([value_to_idx[v.item()] for v in values])
-    return encoded, value_to_idx
-
-
 CT_enc, CT_map = encode_levels(raw_class_table[0])
 WR_enc, WR_map = encode_levels(raw_class_table[1])
 COMP_enc, COMP_map = encode_levels(raw_class_table[2])
@@ -132,41 +126,6 @@ conditioning_config = {
 }
 
 
-# Define the center crop transform
-class CenterCrop(object):
-    def __init__(self, size):
-        self.size = size
-
-    def __call__(self, img):
-        # Get the dimensions of the image
-        _, height, width = img.shape
-        # Calculate the starting coordinates for the crop
-        start_h = (height - self.size) // 2
-        start_w = (width - self.size) // 2
-        # Perform the crop
-        img = img[:, start_h : start_h + self.size, start_w : start_w + self.size]
-        return img
-
-
-class MultiHorizontalCenterCrop:
-    def __init__(self, crop_size=128, n_crops=4):
-        self.crop_size = crop_size
-        self.n_crops = n_crops
-
-    def __call__(self, img):
-        # img is PIL.Image
-        w, h = img.size
-        cs = self.crop_size
-        top = (h - cs) // 2
-        max_left = w - cs
-
-        if self.n_crops == 1:
-            xs = [max_left // 2]
-        else:
-            xs = torch.linspace(0, max_left, self.n_crops)
-        return [TF.crop(img, top, int(x), cs, cs) for x in xs]
-
-
 # Define the whole transform with center crop
 # The filter work, however the images are not homogeneous after transform
 # automoatic segmentaition might fail for instance.
@@ -185,29 +144,6 @@ whole_transform = transforms.Compose(
         ),
     ]
 )
-
-
-class MultiCropImageFolder(datasets.ImageFolder):
-    def __getitem__(self, index):
-        path, label = self.samples[index]
-        img = self.loader(path)
-        crops = self.transform(img)
-        return crops, label
-
-
-class FlattenedMultiCropDataset(torch.utils.data.Dataset):
-    def __init__(self, base_dataset):
-        self.base = base_dataset
-        self.n_crops = len(base_dataset[0][0])
-
-    def __len__(self):
-        return len(self.base) * self.n_crops
-
-    def __getitem__(self, idx):
-        img_idx = idx // self.n_crops
-        crop_idx = idx % self.n_crops
-        crops, label = self.base[img_idx]
-        return crops[crop_idx], label
 
 
 # Load the dataset and apply the transform
@@ -355,25 +291,6 @@ ema_model = copy.deepcopy(model).eval().requires_grad_(False)
 load_model(load_dir)"""
 
 
-def get_conditions_from_labels(labels, class_table, device):
-    """
-    labels: Tensor [B]
-    class_table: Tensor [n_params, n_classes]
-    returns: dict {param_name: Tensor[B]}
-    """
-    cond_tensors = class_maker(
-        batch_size=labels.size(0),
-        labels=labels,
-        class_table=class_table,
-    )
-
-    cond_dict = {}
-    for key, tensor in zip(COND_KEYS, cond_tensors):
-        cond_dict[key] = tensor.long().to(device)
-
-    return cond_dict
-
-
 decode_maps = {
     "CT": CT_map,
     "WR": WR_map,
@@ -381,28 +298,6 @@ decode_maps = {
     "MFR": MFR_map,
     "MAG": MAG_map,
 }
-
-
-def decode_physical_values(cond_dict, decode_maps):
-    """
-    cond_dict: dict {param: Tensor[B]}
-    returns: list of dicts [{param: physical_value}, ...]
-    """
-    B = next(iter(cond_dict.values())).size(0)
-    decoded = []
-
-    for i in range(B):
-        entry = {}
-        for k, tensor in cond_dict.items():
-            idx = tensor[i].item()
-            entry[k] = list(decode_maps[k].keys())[idx]
-        decoded.append(entry)
-    return decoded
-
-
-def format_physical_label(phys_dict):
-    return " | ".join(f"{k}={v}" for k, v in phys_dict.items())
-
 
 # ==========================
 # CONFIG LOGGING / DEBUG
@@ -415,7 +310,7 @@ SAMPLING_VERBOSE = True  # prints pendant le sampling long
 # ==========================
 # FIXED-CONDITION SAMPLING
 # ==========================
-FIXED_LABELS = torch.arange(min(4, num_classes), device=device)
+FIXED_LABELS = torch.arange(min(2, num_classes), device=device)
 FIXED_COND = get_conditions_from_labels(FIXED_LABELS, class_table, device)
 
 images, labels = next(iter(train_loader))
@@ -495,36 +390,6 @@ for e in range(1, n_epoch + 1):
         print(f"[Epoch {e}] Sampling...")
 
         with torch.no_grad():
-            # ---------- RANDOM CONDITIONS ----------
-            test_labels = torch.randint(
-                0, num_classes, (n_sampled_images,), device=device
-            )
-            cond_random = get_conditions_from_labels(test_labels, class_table, device)
-
-            ema_random_images = diffusion.sample(
-                ema_model,
-                n_sampled_images,
-                **cond_random,
-                cfg_scale=0,
-                verbose=SAMPLING_VERBOSE,
-            )
-            ema_random_images = reverse_transforms(ema_random_images)
-            phys_random = decode_physical_values(cond_random, decode_maps)
-            titles_random = [format_physical_label(p) for p in phys_random]
-
-            if PRINT_SAMPLING_INFO:
-                print("Sampled random conditions:")
-                for i, p in enumerate(phys_random):
-                    print(f"  [{i}] {format_physical_label(p)}")
-
-            show_grids(
-                ema_random_images,
-                n_epoch=e,
-                current_dir=current_dir,
-                titles=titles_random,
-                suffix="EMA_RANDOM_CONDITIONS",
-                image_size=image_size,
-            )
 
             # ---------- FIXED-CONDITION SAMPLING ----------
             print(f"[Epoch {e}] Fixed-condition EMA sampling...")
@@ -535,6 +400,7 @@ for e in range(1, n_epoch + 1):
                 cfg_scale=0,
                 verbose=SAMPLING_VERBOSE,
             )
+
             ema_fixed_images = reverse_transforms(ema_fixed_images)
             fixed_phys = decode_physical_values(FIXED_COND, decode_maps)
             fixed_titles = [format_physical_label(p) for p in fixed_phys]
@@ -545,37 +411,6 @@ for e in range(1, n_epoch + 1):
                 current_dir=current_dir,
                 titles=fixed_titles,
                 suffix="EMA_FIXED_CONDITIONS",
-                image_size=image_size,
-            )
-
-            # ---------- EMA vs RAW COMPARISON ----------
-            print(f"[Epoch {e}] EMA vs RAW comparison...")
-            raw_fixed_images = diffusion.sample(
-                model,
-                len(FIXED_LABELS),
-                **FIXED_COND,
-                cfg_scale=0,
-                verbose=False,
-            )
-            raw_fixed_images = reverse_transforms(raw_fixed_images)
-
-            # Show EMA vs RAW side by side
-            # You could combine both in a single grid or save separately
-            show_grids(
-                ema_fixed_images,
-                n_epoch=e,
-                current_dir=current_dir,
-                titles=fixed_titles,
-                suffix="EMA_FIXED_COMPARISON",
-                image_size=image_size,
-            )
-
-            show_grids(
-                raw_fixed_images,
-                n_epoch=e,
-                current_dir=current_dir,
-                titles=fixed_titles,
-                suffix="RAW_FIXED_COMPARISON",
                 image_size=image_size,
             )
 
