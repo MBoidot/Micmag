@@ -9,6 +9,7 @@ from numpy.random import randn
 import torchvision.utils
 import os
 import copy
+from tqdm import tqdm
 import matplotlib.cm as cm
 from utils import (
     encode_levels,
@@ -29,11 +30,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 batch_size = 2
 N_CROPS = 4
 n_sampled_images = 2
-n_epoch = 2
+n_epoch = 300
 log_interval = 10  # print loss every 10 batches
-n_ax = max(1, int(n_epoch / 80))
+n_ax = max(1, int(n_epoch / 60))
 total_loss_min = np.inf
-image_size = 64
+image_size = 256
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
@@ -176,7 +177,7 @@ train_loader = torch.utils.data.DataLoader(
 
 class Diffusion:
     def __init__(
-        self, noise_steps=200, beta_start=1e-4, beta_end=0.02, img_size=image_size
+        self, noise_steps=500, beta_start=1e-4, beta_end=0.02, img_size=image_size
     ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
@@ -308,11 +309,11 @@ FIXED_LABELS = torch.arange(min(2, num_classes), device=device)
 FIXED_COND = get_conditions_from_labels(FIXED_LABELS, class_table, COND_KEYS, device)
 
 images, labels = next(iter(train_loader))
-print("DEBUG: images NaN check:", torch.isnan(images).any())  # should be False
+"""print("DEBUG: images NaN check:", torch.isnan(images).any())  # should be False
 print(
     "DEBUG: images min/max:", images.min().item(), images.max().item()
 )  # should be ~[-1,1]
-print("DEBUG: labels min/max:", labels.min().item(), labels.max().item())
+print("DEBUG: labels min/max:", labels.min().item(), labels.max().item())"""
 
 for e in range(1, n_epoch + 1):
     loss_epoch = 0.0
@@ -321,7 +322,10 @@ for e in range(1, n_epoch + 1):
     # ==========================
     # TRAINING LOOP
     # ==========================
-    for step, (images, labels) in enumerate(train_loader, start=1):
+    for step, (images, labels) in enumerate(
+        tqdm(train_loader, desc=f"Epoch {e}/{n_epoch}", leave=False), start=1
+    ):
+
         optimizer.zero_grad()
         images = aug_transform(images).to(device)
         labels = labels.long().to(device)
@@ -380,7 +384,7 @@ for e in range(1, n_epoch + 1):
     # ==========================
     # SAMPLING / VISUALIZATION
     # ==========================
-    if e % n_ax == 0:
+    if e % n_ax == 1:
         print(f"[Epoch {e}] Sampling...")
 
         with torch.no_grad():
@@ -394,7 +398,8 @@ for e in range(1, n_epoch + 1):
                 cfg_scale=0,
                 verbose=SAMPLING_VERBOSE,
             )
-
+            for _ in tqdm([0], desc=f"Epoch {e} Sampling", leave=True):
+                pass  # dummy loop, just shows the progress bar while sample runs
             # Reverse to [0,255] for visualization
             ema_fixed_images_vis = reverse_transforms(ema_fixed_images)  # [B,1,H,W]
 
@@ -402,11 +407,10 @@ for e in range(1, n_epoch + 1):
             fixed_phys = decode_physical_values(FIXED_COND, decode_maps)
             fixed_titles = [format_physical_label(p) for p in fixed_phys]
 
-            # ---------- ATTENTION OVERLAY ----------
+            # ---------- ATTENTION OVERLAY (THRESHOLD + CONTOUR READY) ----------
             attn_maps = model.get_last_attention_maps()
 
             if len(attn_maps) > 0:
-                # Take first attention module
                 attn_module = list(attn_maps.values())[0]
 
                 attn = attn_module.last_attn  # [B, HW, HW]
@@ -414,11 +418,9 @@ for e in range(1, n_epoch + 1):
                 W = attn_module.last_W
                 B = attn.shape[0]
 
-                # Spatial attention map: average over queries
-                heatmap = attn.mean(dim=1)  # [B, HW]
-                heatmap = heatmap.view(B, 1, H, W)  # [B,1,H,W]
+                # --- spatial attention map ---
+                heatmap = attn.mean(dim=1).view(B, 1, H, W)
 
-                # Upsample to image resolution
                 heatmap = F.interpolate(
                     heatmap,
                     size=(image_size, image_size),
@@ -426,32 +428,77 @@ for e in range(1, n_epoch + 1):
                     align_corners=False,
                 )
 
-                # Normalize
+                # Normalize to [0,1]
                 heatmap = heatmap / (
                     heatmap.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]
                     + 1e-8
                 )
 
-                # Overlay = image + weighted attention (still grayscale)
-                overlay_imgs = ema_fixed_images_vis + 0.7 * heatmap
+                # ======================================================
+                # THRESHOLDED COLORED OVERLAY (THIS IS THE PART YOU ASKED)
+                # ======================================================
+
+                ATTN_THRESHOLD = 0.5
+                ALPHA = 0.6
+                COLORMAP = cm.inferno
+
+                # Binary mask
+                mask = heatmap > ATTN_THRESHOLD  # [B,1,H,W]
+
+                # Convert raw images to RGB [0,255]
+                imgs_rgb = ema_fixed_images_vis.repeat(1, 3, 1, 1)
+                overlay_imgs = imgs_rgb.clone()
+
+                for i in tqdm(
+                    range(B), desc=f"Attention overlay Epoch {e}", leave=False
+                ):
+                    hm = heatmap[i, 0].cpu().numpy()  # [H,W]
+
+                    # Apply colormap
+                    colored = COLORMAP(hm)[..., :3]  # [H,W,3]
+                    colored = (
+                        torch.from_numpy(colored).permute(2, 0, 1).to(imgs_rgb.device)
+                    )
+                    colored = colored.type_as(imgs_rgb)  # ensure same dtype
+                    colored = colored * 255.0
+
+                    # Alpha blend ONLY where attention > threshold
+                    for c in range(3):
+                        overlay_imgs[i, c][mask[i, 0]] = (1 - ALPHA) * imgs_rgb[i, c][
+                            mask[i, 0]
+                        ] + ALPHA * colored[c][mask[i, 0]]
                 overlay_imgs = overlay_imgs.clamp(0, 255)
 
             else:
-                print("No attention maps found!")
-                overlay_imgs = ema_fixed_images_vis.clone()
+                overlay_imgs = ema_fixed_images_vis.repeat(1, 3, 1, 1)
+                heatmap = None
 
-            combined_grid = torch.cat([ema_fixed_images_vis, overlay_imgs], dim=0)
+            # Convert raw images to RGB
+            raw_imgs_rgb = ema_fixed_images_vis.repeat(1, 3, 1, 1)
 
-            combined_titles = fixed_titles + fixed_titles
+            # Combine rows: raw (row 1) + attention overlay (row 2)
+            combined_grid = torch.cat([raw_imgs_rgb, overlay_imgs], dim=0)
 
-            # Show / save the grid
+            # Titles
+            raw_titles = [f"Raw\n{t}" for t in fixed_titles]
+            attn_titles = [f"Attention (thresholded)\n{t}" for t in fixed_titles]
+
+            combined_titles = raw_titles + attn_titles
+
+            # Heatmaps ONLY for attention row
+            heatmaps_for_plot = [
+                heatmap[i, 0].cpu().numpy() for i in range(len(FIXED_LABELS))
+            ]
+
             show_grids(
-                combined_grid,
+                torch.cat([imgs_rgb, overlay_imgs], dim=0),
                 n_epoch=e,
                 current_dir=current_dir,
                 titles=combined_titles,
                 suffix="EMA_FIXED_CONDITIONS_ATTENTION",
                 image_size=image_size,
+                show_colorbar=True,
+                heatmaps=heatmaps_for_plot,
             )
             # ---------- CHECKPOINT ----------
             save_dir = os.path.join(

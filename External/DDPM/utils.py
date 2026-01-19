@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from numpy.random import randn
 from mpl_toolkits.axes_grid1 import ImageGrid
 import os
+import numpy as np
+import matplotlib.cm as cm
 from torchvision import datasets
 import torchvision.transforms.functional as TF
 
@@ -34,44 +36,76 @@ def show_images(images, index, label):
     plt.show()
 
 
-def show_grids(images, n_epoch, current_dir, titles=None, suffix=None, image_size=512):
+def show_grids(
+    images,
+    n_epoch,
+    current_dir,
+    titles=None,
+    suffix=None,
+    image_size=512,
+    show_colorbar=False,
+    heatmaps=None,
+):
     """
-    Display and save a grid of images.
+    images: [B,3,H,W] or [B,1,H,W]
+    heatmaps: list of 2D numpy arrays (for contours)
+    """
 
-    Args:
-        images (Tensor): [B, H, W] ou [B, 1, H, W]
-        n_epoch (int): epoch number, used for filename
-        current_dir (str): path to save images
-        titles (list of str, optional): titles for each subplot
-        suffix (str, optional): additional string for filename
-        image_size (int, optional): height/width of square images
-    """
     n_images = images.size(0)
-    ncols = 2
-    nrows = (n_images + 1) // ncols
+    ncols = n_images // 2
+    nrows = 2
 
-    fig = plt.figure(figsize=(ncols * 10, nrows * 10))
-    grid = ImageGrid(fig, 111, nrows_ncols=(nrows, ncols), axes_pad=0.5)
+    fig = plt.figure(figsize=(ncols * 6, nrows * 6))
+    grid = ImageGrid(
+        fig,
+        111,
+        nrows_ncols=(nrows, ncols),
+        axes_pad=(0.8, 1.2),  # <<< MORE SPACE BETWEEN ROWS
+        cbar_mode="single" if show_colorbar else None,
+        cbar_location="right",
+        cbar_pad=0.15,
+    )
 
-    for j, (ax, im) in enumerate(
-        zip(grid, images.cpu().view(-1, image_size, image_size))
-    ):
-        ax.imshow(im, cmap="gray")
+    for j, ax in enumerate(grid):
+        im = images[j].cpu()
+
+        if im.shape[0] == 1:
+            ax.imshow(im[0], cmap="gray")
+        else:
+            ax.imshow(im.permute(1, 2, 0).numpy().astype(np.uint8))
+
+        # ---- CONTOURS (ONLY FOR ATTENTION ROW) ----
+        if heatmaps is not None and j >= ncols:
+            hm = heatmaps[j - ncols]
+            ax.contour(
+                hm,
+                levels=[0.5],
+                colors="cyan",
+                linewidths=1.5,
+            )
+
         if titles is not None:
-            ax.set_title(titles[j], fontsize=20)
+            ax.set_title(titles[j], fontsize=10, pad=12)
+
         ax.axis("off")
 
-    # --- ensure output directory exists ---
+    # ---- COLORBAR ----
+    if show_colorbar:
+        sm = cm.ScalarMappable(cmap=cm.inferno)
+        sm.set_array([0, 1])
+        grid.cbar_axes[0].colorbar(sm)
+        grid.cbar_axes[0].set_ylabel("Attention intensity", fontsize=12)
+
+    # ---- SAVE ----
     save_dir = os.path.join(current_dir, "Generated_Images_training")
-    os.makedirs(save_dir, exist_ok=True)  # crée le dossier si absent
+    os.makedirs(save_dir, exist_ok=True)
 
-    # --- build filename ---
-    figname = os.path.join(save_dir, str(n_epoch))
-    if suffix is not None:
-        figname += f"_{suffix}"
-    figname += ".png"
+    fname = f"{n_epoch}"
+    if suffix:
+        fname += f"_{suffix}"
+    fname += ".png"
 
-    fig.savefig(figname, bbox_inches="tight")
+    fig.savefig(os.path.join(save_dir, fname), bbox_inches="tight")
     plt.close(fig)
 
 
