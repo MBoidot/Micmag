@@ -1,9 +1,6 @@
 import torch
-import numpy as np
 import matplotlib.pyplot as plt
 from numpy.random import randn
-import torchvision.utils
-from torch.distributions import uniform
 from mpl_toolkits.axes_grid1 import ImageGrid
 import os
 from torchvision import datasets

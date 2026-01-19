@@ -1,16 +1,15 @@
 import torch
 import numpy as np
+import pandas as pd
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.autograd as autograd
-from torch.autograd import Variable
 from torchvision import transforms
-import matplotlib.pyplot as plt
 from numpy.random import randn
 import torchvision.utils
 import os
 import copy
+import matplotlib.cm as cm
 from utils import (
     encode_levels,
     get_conditions_from_labels,
@@ -24,18 +23,17 @@ from utils import (
 )
 
 from modules import *
-import pandas as pd
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
 N_CROPS = 4
 n_sampled_images = 2
-n_epoch = 400
+n_epoch = 2
 log_interval = 10  # print loss every 10 batches
 n_ax = max(1, int(n_epoch / 80))
 total_loss_min = np.inf
-image_size = 128
+image_size = 64
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
@@ -178,7 +176,7 @@ train_loader = torch.utils.data.DataLoader(
 
 class Diffusion:
     def __init__(
-        self, noise_steps=500, beta_start=1e-4, beta_end=0.02, img_size=image_size
+        self, noise_steps=200, beta_start=1e-4, beta_end=0.02, img_size=image_size
     ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
@@ -387,7 +385,7 @@ for e in range(1, n_epoch + 1):
 
         with torch.no_grad():
 
-            # ---------- FIXED-CONDITION SAMPLING ----------
+            # ---------- FIXED-CONDITION EMA SAMPLING ----------
             print(f"[Epoch {e}] Fixed-condition EMA sampling...")
             ema_fixed_images = diffusion.sample(
                 ema_model,
@@ -397,19 +395,64 @@ for e in range(1, n_epoch + 1):
                 verbose=SAMPLING_VERBOSE,
             )
 
-            ema_fixed_images = reverse_transforms(ema_fixed_images)
+            # Reverse to [0,255] for visualization
+            ema_fixed_images_vis = reverse_transforms(ema_fixed_images)  # [B,1,H,W]
+
+            # Decode physical labels for titles
             fixed_phys = decode_physical_values(FIXED_COND, decode_maps)
             fixed_titles = [format_physical_label(p) for p in fixed_phys]
 
+            # ---------- ATTENTION OVERLAY ----------
+            attn_maps = model.get_last_attention_maps()
+
+            if len(attn_maps) > 0:
+                # Take first attention module
+                attn_module = list(attn_maps.values())[0]
+
+                attn = attn_module.last_attn  # [B, HW, HW]
+                H = attn_module.last_H
+                W = attn_module.last_W
+                B = attn.shape[0]
+
+                # Spatial attention map: average over queries
+                heatmap = attn.mean(dim=1)  # [B, HW]
+                heatmap = heatmap.view(B, 1, H, W)  # [B,1,H,W]
+
+                # Upsample to image resolution
+                heatmap = F.interpolate(
+                    heatmap,
+                    size=(image_size, image_size),
+                    mode="bilinear",
+                    align_corners=False,
+                )
+
+                # Normalize
+                heatmap = heatmap / (
+                    heatmap.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]
+                    + 1e-8
+                )
+
+                # Overlay = image + weighted attention (still grayscale)
+                overlay_imgs = ema_fixed_images_vis + 0.7 * heatmap
+                overlay_imgs = overlay_imgs.clamp(0, 255)
+
+            else:
+                print("No attention maps found!")
+                overlay_imgs = ema_fixed_images_vis.clone()
+
+            combined_grid = torch.cat([ema_fixed_images_vis, overlay_imgs], dim=0)
+
+            combined_titles = fixed_titles + fixed_titles
+
+            # Show / save the grid
             show_grids(
-                ema_fixed_images,
+                combined_grid,
                 n_epoch=e,
                 current_dir=current_dir,
-                titles=fixed_titles,
-                suffix="EMA_FIXED_CONDITIONS",
+                titles=combined_titles,
+                suffix="EMA_FIXED_CONDITIONS_ATTENTION",
                 image_size=image_size,
             )
-
             # ---------- CHECKPOINT ----------
             save_dir = os.path.join(
                 current_dir, "Generated_Images_training", "All_CDDM_HR_Cat_V_6.pth.tar"

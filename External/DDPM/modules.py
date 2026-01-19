@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -46,18 +45,27 @@ class SelfAttention2(nn.Module):
             nn.GELU(),
             nn.Linear(channels, channels),
         )
+        self.last_attn = None  # <-- store last attention
 
     def forward(self, x):
         # x: [B, C, H, W]
         B, C, H, W = x.shape
-
         x = x.view(B, C, H * W).permute(0, 2, 1)  # [B, HW, C]
         x_ln = self.ln(x)
 
-        attn, _ = self.mha(x_ln, x_ln, x_ln)
-        x = attn + x
-        x = self.ff_self(x) + x
+        attn_out, attn_weights = self.mha(
+            x_ln, x_ln, x_ln, need_weights=True, average_attn_weights=False
+        )
 
+        # attn_weights: [B, n_heads, HW, HW]
+        attn_weights = attn_weights.mean(dim=1)  # moyenne sur les têtes → [B, HW, HW]
+
+        self.last_attn = attn_weights.detach()
+        self.last_H = H
+        self.last_W = W
+
+        x = attn_out + x
+        x = self.ff_self(x) + x
         return x.permute(0, 2, 1).view(B, C, H, W)
 
 
@@ -73,18 +81,27 @@ class SelfAttention4(nn.Module):
             nn.GELU(),
             nn.Linear(channels, channels),
         )
+        self.last_attn = None  # <-- store last attention
 
     def forward(self, x):
         # x: [B, C, H, W]
         B, C, H, W = x.shape
-
         x = x.view(B, C, H * W).permute(0, 2, 1)
         x_ln = self.ln(x)
 
-        attn, _ = self.mha(x_ln, x_ln, x_ln)
-        x = attn + x
-        x = self.ff_self(x) + x
+        attn_out, attn_weights = self.mha(
+            x_ln, x_ln, x_ln, need_weights=True, average_attn_weights=False
+        )
 
+        # attn_weights: [B, n_heads, HW, HW]
+        attn_weights = attn_weights.mean(dim=1)  # moyenne sur les têtes → [B, HW, HW]
+
+        self.last_attn = attn_weights.detach()
+        self.last_H = H
+        self.last_W = W
+
+        x = attn_out + x
+        x = self.ff_self(x) + x
         return x.permute(0, 2, 1).view(B, C, H, W)
 
 
@@ -484,6 +501,16 @@ class UNet_conditional(nn.Module):
         if time_dim % 2 == 1:  # pad if odd
             emb = F.pad(emb, (0, 1))
         return emb  # [B, time_dim]
+
+    def get_last_attention_maps(self):
+        # Collect only attention modules that actually stored attention
+        attn_modules = {}
+        for name, module in self.named_modules():
+            if isinstance(module, (SelfAttention2, SelfAttention4)) and hasattr(
+                module, "last_attn"
+            ):
+                attn_modules[name] = module  # store module itself
+        return attn_modules
 
 
 class UNet_conditional_small(nn.Module):
