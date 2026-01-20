@@ -28,13 +28,10 @@ from modules import *
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
-N_CROPS = 2
-n_sampled_images = 2
+N_CROPS = 4
 n_epoch = 300
-log_interval = 10  # print loss every 10 batches
-n_ax = max(1, int(n_epoch / 300))
-total_loss_min = np.inf
-image_size = 64
+n_ax = max(1, int(n_epoch / 60))
+image_size = 256
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
@@ -47,6 +44,9 @@ cropped_images_dir = os.path.join(current_dir, "Training", "cropped_images")
 
 # Create the cropped_images directory if it doesn't exist
 os.makedirs(cropped_images_dir, exist_ok=True)
+
+# read process parameters from CSV
+# to be modified to pick up parameters in relevant files
 df = pd.read_csv("cast_information.csv", sep=";")
 
 # -------------------------------------------------
@@ -385,7 +385,7 @@ for e in range(1, n_epoch + 1):
     # ==========================
     # SAMPLING / VISUALIZATION
     # ==========================
-    if e % n_ax == 0:
+    if e % n_ax == 1:
         print(f"[Epoch {e}] Sampling...")
 
         with torch.no_grad():
@@ -538,7 +538,9 @@ for e in range(1, n_epoch + 1):
 
             # ---------- CHECKPOINT ----------
             save_dir = os.path.join(
-                current_dir, "Generated_Images_training", "All_CDDM_HR_Cat_V_6.pth.tar"
+                current_dir,
+                "Generated_Images_training",
+                "UNET_conditional_Down_att_256_300ep.tar",
             )
             save_model(save_dir, model, ema_model, optimizer)
 
