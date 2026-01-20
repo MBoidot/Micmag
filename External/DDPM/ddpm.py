@@ -28,7 +28,7 @@ from modules import *
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
-N_CROPS = 4
+N_CROPS = 6
 n_sampled_images = 2
 n_epoch = 300
 log_interval = 10  # print loss every 10 batches
@@ -391,15 +391,16 @@ for e in range(1, n_epoch + 1):
 
             # ---------- FIXED-CONDITION EMA SAMPLING ----------
             print(f"[Epoch {e}] Fixed-condition EMA sampling...")
+
+            # Progress bar over diffusion timesteps
             ema_fixed_images = diffusion.sample(
                 ema_model,
                 len(FIXED_LABELS),
                 **FIXED_COND,
                 cfg_scale=0,
-                verbose=SAMPLING_VERBOSE,
+                verbose=True,  # IMPORTANT: diffusion.sample must update tqdm internally
             )
-            for _ in tqdm([0], desc=f"Epoch {e} Sampling", leave=True):
-                pass  # dummy loop, just shows the progress bar while sample runs
+
             # Reverse to [0,255] for visualization
             ema_fixed_images_vis = reverse_transforms(ema_fixed_images)  # [B,1,H,W]
 
@@ -407,8 +408,17 @@ for e in range(1, n_epoch + 1):
             fixed_phys = decode_physical_values(FIXED_COND, decode_maps)
             fixed_titles = [format_physical_label(p) for p in fixed_phys]
 
-            # ---------- ATTENTION OVERLAY (THRESHOLD + CONTOUR READY) ----------
+            # ---------- ATTENTION EXTRACTION ----------
             attn_maps = model.get_last_attention_maps()
+
+            # Always define base RGB images
+            imgs_rgb = ema_fixed_images_vis.repeat(1, 3, 1, 1)
+
+            # Defaults (safe fallback)
+            overlay_keys = imgs_rgb.clone()
+            overlay_queries = imgs_rgb.clone()
+            overlay_diag = imgs_rgb.clone()
+            heatmap_keys = heatmap_queries = heatmap_diag = None
 
             if len(attn_maps) > 0:
                 attn_module = list(attn_maps.values())[0]
@@ -418,88 +428,113 @@ for e in range(1, n_epoch + 1):
                 W = attn_module.last_W
                 B = attn.shape[0]
 
-                # --- spatial attention map ---
-                heatmap = attn.mean(dim=1).view(B, 1, H, W)
+                # ---------- MULTI-VIEW ATTENTION MAPS ----------
+                heatmap_keys = attn.mean(dim=1).view(B, 1, H, W)
+                heatmap_queries = attn.mean(dim=2).view(B, 1, H, W)
+                heatmap_diag = attn.diagonal(dim1=1, dim2=2).view(B, 1, H, W)
 
-                heatmap = F.interpolate(
-                    heatmap,
-                    size=(image_size, image_size),
-                    mode="bilinear",
-                    align_corners=False,
-                )
+                def resize_and_norm(hm, q=0.99):
+                    hm = F.interpolate(
+                        hm,
+                        size=(image_size, image_size),
+                        mode="bilinear",
+                        align_corners=False,
+                    )
 
-                # Normalize to [0,1]
-                heatmap = heatmap / (
-                    heatmap.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]
-                    + 1e-8
-                )
+                    flat = hm.flatten(start_dim=1)
+                    scale = torch.quantile(flat, q, dim=1).view(-1, 1, 1, 1)
 
-                # ======================================================
-                # THRESHOLDED COLORED OVERLAY (THIS IS THE PART YOU ASKED)
-                # ======================================================
+                    hm = hm / (scale + 1e-8)
+                    return hm.clamp(0, 1)
 
+                heatmap_keys = resize_and_norm(heatmap_keys)
+                heatmap_queries = resize_and_norm(heatmap_queries)
+                heatmap_diag = resize_and_norm(heatmap_diag)
+
+                # ---------- OVERLAY ----------
                 ATTN_THRESHOLD = 0.5
                 ALPHA = 0.6
-                COLORMAP = cm.inferno
 
-                # Binary mask
-                mask = heatmap > ATTN_THRESHOLD  # [B,1,H,W]
+                COLORMAPS = {
+                    "keys": cm.inferno,
+                    "queries": cm.viridis,
+                    "diag": cm.cividis,
+                }
 
-                # Convert raw images to RGB [0,255]
-                imgs_rgb = ema_fixed_images_vis.repeat(1, 3, 1, 1)
-                overlay_imgs = imgs_rgb.clone()
+                def apply_overlay(heatmap, cmap):
+                    overlay = imgs_rgb.clone()
+                    mask = heatmap > ATTN_THRESHOLD
 
-                for i in tqdm(
-                    range(B), desc=f"Attention overlay Epoch {e}", leave=False
-                ):
-                    hm = heatmap[i, 0].cpu().numpy()  # [H,W]
+                    for i in range(B):
+                        hm = heatmap[i, 0].cpu().numpy()
+                        colored_np = cmap(hm)[..., :3]
 
-                    # Apply colormap
-                    colored = COLORMAP(hm)[..., :3]  # [H,W,3]
-                    colored = (
-                        torch.from_numpy(colored).permute(2, 0, 1).to(imgs_rgb.device)
-                    )
-                    colored = colored.type_as(imgs_rgb)  # ensure same dtype
-                    colored = colored * 255.0
+                        colored = (
+                            torch.from_numpy(colored_np)
+                            .permute(2, 0, 1)
+                            .to(imgs_rgb.device)
+                            .type_as(imgs_rgb)
+                            * 255.0
+                        )
 
-                    # Alpha blend ONLY where attention > threshold
-                    for c in range(3):
-                        overlay_imgs[i, c][mask[i, 0]] = (1 - ALPHA) * imgs_rgb[i, c][
-                            mask[i, 0]
-                        ] + ALPHA * colored[c][mask[i, 0]]
-                overlay_imgs = overlay_imgs.clamp(0, 255)
+                        for c in range(3):
+                            overlay[i, c][mask[i, 0]] = (1 - ALPHA) * imgs_rgb[i, c][
+                                mask[i, 0]
+                            ] + ALPHA * colored[c][mask[i, 0]]
 
-            else:
-                overlay_imgs = ema_fixed_images_vis.repeat(1, 3, 1, 1)
-                heatmap = None
+                    return overlay.clamp(0, 255)
 
-            # Convert raw images to RGB
-            raw_imgs_rgb = ema_fixed_images_vis.repeat(1, 3, 1, 1)
+                overlay_keys = apply_overlay(heatmap_keys, COLORMAPS["keys"])
+                overlay_queries = apply_overlay(heatmap_queries, COLORMAPS["queries"])
+                overlay_diag = apply_overlay(heatmap_diag, COLORMAPS["diag"])
 
-            # Combine rows: raw (row 1) + attention overlay (row 2)
-            combined_grid = torch.cat([raw_imgs_rgb, overlay_imgs], dim=0)
+            # ---------- GRID ASSEMBLY ----------
+            grid_imgs = torch.cat(
+                [imgs_rgb, overlay_keys, overlay_queries, overlay_diag],
+                dim=0,
+            )
 
-            # Titles
-            raw_titles = [f"Raw\n{t}" for t in fixed_titles]
-            attn_titles = [f"Attention (thresholded)\n{t}" for t in fixed_titles]
+            titles = (
+                [f"Raw\n{t}" for t in fixed_titles]
+                + ["Attn mean(dim=1)\nKeys"] * len(fixed_titles)
+                + ["Attn mean(dim=2)\nQueries"] * len(fixed_titles)
+                + ["Attn diagonal\nSelf"] * len(fixed_titles)
+            )
 
-            combined_titles = raw_titles + attn_titles
-
-            # Heatmaps ONLY for attention row
-            heatmaps_for_plot = [
-                heatmap[i, 0].cpu().numpy() for i in range(len(FIXED_LABELS))
-            ]
+            heatmaps_for_plot = (
+                [None] * len(fixed_titles)
+                + (
+                    [heatmap_keys[i, 0].cpu().numpy() for i in range(len(fixed_titles))]
+                    if heatmap_keys is not None
+                    else [None] * len(fixed_titles)
+                )
+                + (
+                    [
+                        heatmap_queries[i, 0].cpu().numpy()
+                        for i in range(len(fixed_titles))
+                    ]
+                    if heatmap_queries is not None
+                    else [None] * len(fixed_titles)
+                )
+                + (
+                    [heatmap_diag[i, 0].cpu().numpy() for i in range(len(fixed_titles))]
+                    if heatmap_diag is not None
+                    else [None] * len(fixed_titles)
+                )
+            )
 
             show_grids(
-                torch.cat([imgs_rgb, overlay_imgs], dim=0),
+                grid_imgs,
                 n_epoch=e,
                 current_dir=current_dir,
-                titles=combined_titles,
-                suffix="EMA_FIXED_CONDITIONS_ATTENTION",
+                titles=titles,
+                suffix="EMA_ATTENTION_COMPARISON",
                 image_size=image_size,
                 show_colorbar=True,
                 heatmaps=heatmaps_for_plot,
+                attn_threshold=ATTN_THRESHOLD,
             )
+
             # ---------- CHECKPOINT ----------
             save_dir = os.path.join(
                 current_dir, "Generated_Images_training", "All_CDDM_HR_Cat_V_6.pth.tar"

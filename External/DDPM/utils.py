@@ -45,63 +45,120 @@ def show_grids(
     image_size=512,
     show_colorbar=False,
     heatmaps=None,
+    attn_threshold=0.5,
 ):
     """
-    images: [B,3,H,W] or [B,1,H,W]
-    heatmaps: list of 2D numpy arrays (for contours)
+    Display and save a grid of images with EXACTLY 2 columns.
+
+    Args:
+        images (Tensor): [B, 3, H, W] or [B, 1, H, W]
+        n_epoch (int): epoch number
+        current_dir (str): save directory
+        titles (list of str): per-image titles
+        suffix (str): filename suffix
+        image_size (int): image size
+        show_colorbar (bool): show colorbar for attention maps
+        heatmaps (list or None): list of 2D numpy arrays (or None)
     """
 
-    n_images = images.size(0)
-    ncols = n_images // 2
-    nrows = 2
+    import os
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.axes_grid1 import ImageGrid
+    import numpy as np
 
+    n_images = images.size(0)
+
+    # =========================
+    # FORCE 2 COLUMNS
+    # =========================
+    ncols = 2
+    nrows = int(np.ceil(n_images / ncols))
+
+    # =========================
+    # FIGURE SETUP
+    # =========================
     fig = plt.figure(figsize=(ncols * 6, nrows * 6))
+
     grid = ImageGrid(
         fig,
         111,
         nrows_ncols=(nrows, ncols),
-        axes_pad=(0.8, 1.2),  # <<< MORE SPACE BETWEEN ROWS
+        axes_pad=(0.6, 1.2),  # (horizontal, vertical) padding
+        share_all=False,
         cbar_mode="single" if show_colorbar else None,
         cbar_location="right",
-        cbar_pad=0.15,
+        cbar_pad=0.1,
     )
 
+    # =========================
+    # PLOTTING
+    # =========================
+
+    images_np = images.cpu().numpy()  # keep original shape
+
+    im_for_cbar = None
+
     for j, ax in enumerate(grid):
-        im = images[j].cpu()
+        if j >= n_images:
+            ax.axis("off")
+            continue
 
-        if im.shape[0] == 1:
-            ax.imshow(im[0], cmap="gray")
+        im_j = images_np[j]
+
+        # ----- Image display (RGB-aware) -----
+        if im_j.ndim == 2:  # grayscale image
+            im = ax.imshow(im_j, cmap="gray", vmin=0, vmax=255)
+        elif im_j.ndim == 3 and im_j.shape[0] == 3:  # CHW → HWC
+            im = ax.imshow(np.transpose(im_j, (1, 2, 0)).astype(np.uint8))
         else:
-            ax.imshow(im.permute(1, 2, 0).numpy().astype(np.uint8))
+            raise ValueError(f"Unexpected image shape: {im_j.shape}")
 
-        # ---- CONTOURS (ONLY FOR ATTENTION ROW) ----
-        if heatmaps is not None and j >= ncols:
-            hm = heatmaps[j - ncols]
-            ax.contour(
+        # ----- Titles -----
+        if titles is not None:
+            ax.set_title(
+                titles[j],
+                fontsize=9,
+                pad=10,
+            )
+
+        ax.axis("off")
+
+        # ----- Attention contour + colorbar source -----
+        if heatmaps is not None and heatmaps[j] is not None:
+            hm = heatmaps[j]  # expected in [0,1] (percent scale)
+
+            contour = ax.contour(
+                np.linspace(0, image_size, hm.shape[1]),
+                np.linspace(0, image_size, hm.shape[0]),
                 hm,
-                levels=[0.5],
+                levels=[attn_threshold],
                 colors="cyan",
                 linewidths=1.5,
             )
 
-        if titles is not None:
-            ax.set_title(titles[j], fontsize=10, pad=12)
+            # Use attention map (not image) for colorbar
+            im_for_cbar = ax.imshow(
+                hm,
+                cmap="inferno",
+                alpha=0.0,  # invisible, but keeps colormap
+                vmin=0,
+                vmax=1,
+            )
 
-        ax.axis("off")
+    # =========================
+    # COLORBAR
+    # =========================
+    if show_colorbar and im_for_cbar is not None:
+        grid.cbar_axes[0].colorbar(im_for_cbar)
 
-    # ---- COLORBAR ----
-    if show_colorbar:
-        sm = cm.ScalarMappable(cmap=cm.inferno)
-        sm.set_array([0, 1])
-        grid.cbar_axes[0].colorbar(sm)
-        grid.cbar_axes[0].set_ylabel("Attention intensity", fontsize=12)
-
-    # ---- SAVE ----
+    # =========================
+    # SAVE
+    # =========================
     save_dir = os.path.join(current_dir, "Generated_Images_training")
     os.makedirs(save_dir, exist_ok=True)
 
     fname = f"{n_epoch}"
-    if suffix:
+    if suffix is not None:
         fname += f"_{suffix}"
     fname += ".png"
 
