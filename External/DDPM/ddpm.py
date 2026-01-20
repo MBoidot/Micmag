@@ -28,13 +28,13 @@ from modules import *
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
-N_CROPS = 6
+N_CROPS = 2
 n_sampled_images = 2
 n_epoch = 300
 log_interval = 10  # print loss every 10 batches
-n_ax = max(1, int(n_epoch / 60))
+n_ax = max(1, int(n_epoch / 300))
 total_loss_min = np.inf
-image_size = 256
+image_size = 64
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
@@ -155,7 +155,7 @@ for i in range(len(base_dataset)):
 aug_transform = transforms.Compose(
     [
         transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomVerticalFlip(p=0.5),
+        transforms.ColorJitter(brightness=0.05, contrast=0.05),
     ]
 )
 
@@ -271,6 +271,7 @@ model = UNet_conditional(
     time_dim=128,
     attention_from=16,  # activate when using unet_conditional
     attention_to=8,  # activate when using unet_conditional
+    attention_on="down",  # up, down or both, depending on where to put attention layers
     cond_dims=conditioning_config,
 ).to(device)
 
@@ -384,7 +385,7 @@ for e in range(1, n_epoch + 1):
     # ==========================
     # SAMPLING / VISUALIZATION
     # ==========================
-    if e % n_ax == 1:
+    if e % n_ax == 0:
         print(f"[Epoch {e}] Sampling...")
 
         with torch.no_grad():
@@ -530,7 +531,7 @@ for e in range(1, n_epoch + 1):
                 titles=titles,
                 suffix="EMA_ATTENTION_COMPARISON",
                 image_size=image_size,
-                show_colorbar=True,
+                show_colorbar=False,
                 heatmaps=heatmaps_for_plot,
                 attn_threshold=ATTN_THRESHOLD,
             )

@@ -306,91 +306,89 @@ class UNet_conditional(nn.Module):
         time_dim=128,
         attention_from=32,
         attention_to=8,
+        attention_on="both",  # "down", "up", "both"
     ):
         """
-        Conditional UNet with configurable self-attention resolutions.
+        Conditional UNet with configurable self-attention resolutions and flexible attention placement.
 
         Args:
             c_in (int): input channels
             c_out (int): output channels
             cond_dims (dict): conditioning description
             image_size (int): input image resolution (square)
+            time_dim (int): timestep embedding dimension
             attention_from (int): max resolution for self-attention
             attention_to (int): min resolution for self-attention
+            attention_on (str): where to apply attention ("down", "up", "both")
         """
         super().__init__()
         self.cond_dims = cond_dims
         self.time_dim = time_dim
+        self.attention_on = attention_on
 
-        # version to restore after debugging
-
+        # ---------------------------
+        # Attention helper functions
+        # ---------------------------
         def make_attention(channels, resolution):
-            """
-            Decide which self-attention layer to use for a feature map.
-
-            Args:
-                channels (int): number of channels in the feature map
-                resolution (int): H or W of the square feature map
-
-            Returns:
-                nn.Module: SelfAttention2, SelfAttention4, or Identity
-            """
-            # Determine number of attention heads based on channels
+            """Decide which self-attention layer to use for a feature map."""
             n_heads = 2 if channels <= 64 else 4
-
-            # Compute minimal spatial size required to safely apply MultiheadAttention
-            min_res = n_heads  # need at least n_heads positions to attend
-
+            min_res = n_heads  # minimal size to apply attention
             if resolution < min_res:
                 return nn.Identity()
-
-            # Only apply attention if resolution is in the attention range
             if attention_to <= resolution <= attention_from:
-                if n_heads == 2:
-                    return SelfAttention2(channels)
-                else:
-                    return SelfAttention4(channels)
-            else:
-                return nn.Identity()
-
-        """
-        def make_attention(channels, resolution):
+                return (
+                    SelfAttention2(channels)
+                    if n_heads == 2
+                    else SelfAttention4(channels)
+                )
             return nn.Identity()
-        """
+
+        def maybe_attention_down(channels, resolution):
+            return (
+                make_attention(channels, resolution)
+                if attention_on in ["down", "both"]
+                else nn.Identity()
+            )
+
+        def maybe_attention_up(channels, resolution):
+            return (
+                make_attention(channels, resolution)
+                if attention_on in ["up", "both"]
+                else nn.Identity()
+            )
 
         # ---------------------------
         # Initial conv
         # ---------------------------
         self.inc = DoubleConv(c_in, 16)
+        res = image_size
 
         # ---------------------------
         # Downsampling path
         # ---------------------------
-        res = image_size
-
         self.down1 = Down(16, 32, self.time_dim, cond_dims)
         res //= 2
-        self.sa1 = make_attention(32, res)
+        self.sa1 = maybe_attention_down(32, res)
 
         self.down2 = Down(32, 64, self.time_dim, cond_dims)
         res //= 2
-        self.sa2 = make_attention(64, res)
+        self.sa2 = maybe_attention_down(64, res)
 
         self.down3 = Down(64, 128, self.time_dim, cond_dims)
         res //= 2
-        self.sa3 = make_attention(128, res)
+        self.sa3 = maybe_attention_down(128, res)
 
         self.down4 = Down(128, 256, self.time_dim, cond_dims)
         res //= 2
-        self.sa4 = make_attention(256, res)
+        self.sa4 = maybe_attention_down(256, res)
 
         self.down5 = Down(256, 512, self.time_dim, cond_dims)
         res //= 2
-        self.sa5 = make_attention(512, res)
+        self.sa5 = maybe_attention_down(512, res)
 
         self.down6 = Down(512, 512, self.time_dim, cond_dims)
         res //= 2
-        self.sa6 = make_attention(512, res)
+        self.sa6 = maybe_attention_down(512, res)
 
         # ---------------------------
         # Bottleneck
@@ -403,22 +401,22 @@ class UNet_conditional(nn.Module):
         # Upsampling path
         # ---------------------------
         self.up6 = Up(1024, 256, self.time_dim, cond_dims)
-        self.as6 = make_attention(256, res * 2)
+        self.as6 = maybe_attention_up(256, res * 2)
 
         self.up5 = Up(512, 128, self.time_dim, cond_dims)
-        self.as5 = make_attention(128, res * 4)
+        self.as5 = maybe_attention_up(128, res * 4)
 
         self.up4 = Up(256, 64, self.time_dim, cond_dims)
-        self.as4 = make_attention(64, res * 8)
+        self.as4 = maybe_attention_up(64, res * 8)
 
         self.up3 = Up(128, 32, self.time_dim, cond_dims)
-        self.as3 = make_attention(32, res * 16)
+        self.as3 = maybe_attention_up(32, res * 16)
 
         self.up2 = Up(64, 16, self.time_dim, cond_dims)
-        self.as2 = make_attention(16, res * 32)
+        self.as2 = maybe_attention_up(16, res * 32)
 
         self.up1 = Up(32, 8, self.time_dim, cond_dims)
-        self.as1 = make_attention(8, res * 64)
+        self.as1 = maybe_attention_up(8, res * 64)
 
         # ---------------------------
         # Output
@@ -503,13 +501,18 @@ class UNet_conditional(nn.Module):
         return emb  # [B, time_dim]
 
     def get_last_attention_maps(self):
-        # Collect only attention modules that actually stored attention
+        """
+        Collect only attention modules that are actually applied (not Identity)
+        and have stored attention weights.
+        """
         attn_modules = {}
         for name, module in self.named_modules():
             if isinstance(module, (SelfAttention2, SelfAttention4)) and hasattr(
                 module, "last_attn"
             ):
-                attn_modules[name] = module  # store module itself
+                # Only include modules that are active given attention_on
+                if module is not None:
+                    attn_modules[name] = module
         return attn_modules
 
 

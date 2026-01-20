@@ -83,7 +83,7 @@ def show_grids(
         fig,
         111,
         nrows_ncols=(nrows, ncols),
-        axes_pad=(0.6, 1.2),  # (horizontal, vertical) padding
+        axes_pad=(0.5, 1),  # (horizontal, vertical) padding
         share_all=False,
         cbar_mode="single" if show_colorbar else None,
         cbar_location="right",
