@@ -66,6 +66,7 @@ The backbone of the model is a **deep conditional UNet** operating on 256×256 g
 
 - **Deep hierarchical representation**  
   The network progressively increases channel depth from 16 channels at the input to 512 channels at the bottleneck, enabling rich multiscale feature extraction.
+  Several UNET models are available in the modules.py file. UNET_conditional_256 is a smaller version of the UNET_Conditional
 
 ---
 

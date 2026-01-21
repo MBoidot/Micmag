@@ -29,14 +29,23 @@ from modules import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-batch_size = 2
-N_CROPS = 2  # number of random crops per image
+batch_size = 2  # increase when GPU used
+N_CROPS = 6  # number of random crops per image
 n_epoch = 300
 n_ax = max(1, int(n_epoch / 150))
-image_size = 128
+image_size = 256
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
+num_workers = 0  # increase for preload data during training process
+noise_steps = 500  # noise steps used during the diffusion process
+noise_prints = 100  # print every noise_prints steps during sampling
+attention_from = 16
+# Starting resolution map for incorporating attention layers in the UNET (typically 32 or 16)
+attention_to = 8
+# Ending resolution map for incorporating attention layers in the UNET (typically 8 )
+attention_on = "both"  # up, down or both, depending on where to put attention layers
+
 
 # Define paths
 current_dir = os.getcwd()
@@ -122,14 +131,6 @@ conditioning_config = {
     "embedding_dim": embedding_dim,
 }
 
-
-# Define the whole transform with center crop
-# The filter work, however the images are not homogeneous after transform
-# automoatic segmentaition might fail for instance.
-# some adaptive thresholding could be performed here instead of grayscale conversion
-# pay attention to the naming as well
-# and check what happens in some images that seem not to be transformed (image 55-4, 56-4 and 7-0)
-
 whole_transform = transforms.Compose(
     [
         transforms.Grayscale(),
@@ -147,7 +148,6 @@ aug_transform = transforms.Compose(
         transforms.RandomApply([transforms.Lambda(add_noise)], p=0.3),
     ]
 )
-
 
 # Load the dataset and apply the transform
 base_dataset = datasets.ImageFolder(
@@ -182,7 +182,7 @@ train_loader = torch.utils.data.DataLoader(
     dataset=train_dataset,
     batch_size=batch_size,
     shuffle=True,
-    num_workers=0,  # can increase later
+    num_workers=num_workers,  # can increase later
     pin_memory=False,
     worker_init_fn=worker_init_fn,
 )
@@ -190,7 +190,11 @@ train_loader = torch.utils.data.DataLoader(
 
 class Diffusion:
     def __init__(
-        self, noise_steps=300, beta_start=1e-4, beta_end=0.02, img_size=image_size
+        self,
+        noise_steps=noise_steps,
+        beta_start=1e-4,
+        beta_end=0.02,
+        img_size=image_size,
     ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
@@ -229,7 +233,7 @@ class Diffusion:
         MAG,
         cfg_scale=0,
         verbose=False,
-        print_every=100,
+        print_every=noise_prints,
     ):
         """
         Sample images from the diffusion model.
@@ -282,9 +286,9 @@ model = UNet_conditional_256(
     c_out=1,
     image_size=image_size,
     time_dim=128,
-    attention_from=32,  # activate when using unet_conditional
-    attention_to=8,  # activate when using unet_conditional
-    attention_on="both",  # up, down or both, depending on where to put attention layers
+    attention_from=attention_from,  # activate when using unet_conditional
+    attention_to=attention_to,  # activate when using unet_conditional
+    attention_on=attention_on,  # up, down or both, depending on where to put attention layers
     cond_dims=conditioning_config,
 ).to(device)
 
@@ -292,7 +296,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 mse = nn.MSELoss()
 diffusion = Diffusion(img_size=image_size)
 l = len(train_loader)
-ema = EMA(0.995)
+ema = EMA(0.999)
 ema_model = copy.deepcopy(model).eval().requires_grad_(False)
 
 # here a window pop upto browse for the model could be implemented

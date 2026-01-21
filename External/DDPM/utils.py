@@ -132,7 +132,7 @@ def show_grids(
                 np.linspace(0, image_size, hm.shape[0]),
                 hm,
                 levels=[attn_threshold],
-                colors="cyan",
+                colors="black",
                 linewidths=1.5,
             )
 
