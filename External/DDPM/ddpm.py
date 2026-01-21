@@ -4,7 +4,7 @@ import pandas as pd
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torchvision import transforms
+from torchvision import transforms, datasets
 from numpy.random import randn
 import torchvision.utils
 import os
@@ -18,9 +18,11 @@ from utils import (
     save_model,
     decode_physical_values,
     format_physical_label,
-    MultiHorizontalCenterCrop,
-    MultiCropImageFolder,
-    FlattenedMultiCropDataset,
+    normalize_tensor,
+    power_random,
+    add_noise,
+    RandomHorizontalCenterCrop,
+    RandomKCropsDataset,
 )
 
 from modules import *
@@ -28,10 +30,10 @@ from modules import *
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
-N_CROPS = 4
+N_CROPS = 2
 n_epoch = 300
-n_ax = max(1, int(n_epoch / 60))
-image_size = 256
+n_ax = max(1, int(n_epoch / 150))
+image_size = 64
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
@@ -131,41 +133,36 @@ conditioning_config = {
 whole_transform = transforms.Compose(
     [
         transforms.Grayscale(),
-        MultiHorizontalCenterCrop(crop_size=image_size, n_crops=N_CROPS),
-        transforms.Lambda(
-            lambda crops: [
-                torch.clamp(transforms.ToTensor()(c) * 2 - 1, -1, 1) for c in crops
-            ]
-        ),
+        RandomHorizontalCenterCrop(crop_size=image_size),
+        transforms.ToTensor(),
+        transforms.Lambda(normalize_tensor),
     ]
 )
-
-
-# Load the dataset and apply the transform
-base_dataset = MultiCropImageFolder(training_data_dir, transform=whole_transform)
-train_dataset = FlattenedMultiCropDataset(base_dataset)
-
-# Save the cropped images to the cropped_images subfolder
-for i in range(len(base_dataset)):
-    crops, label = base_dataset[i]
-    for j, crop in enumerate(crops):
-        path = os.path.join(cropped_images_dir, f"img_{i}_crop_{j}_label_{label}.png")
-        torchvision.utils.save_image((crop + 1) / 2, path)
-
-
-def add_noise(x, sigma=0.01):
-    return x + sigma * torch.randn_like(x)
-
 
 aug_transform = transforms.Compose(
     [
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.ColorJitter(brightness=0.05, contrast=0.05),
-        transforms.RandomApply(
-            [transforms.Lambda(lambda x: x ** torch.empty(1).uniform_(0.9, 1.1))], p=0.3
-        ),
+        transforms.RandomApply([transforms.Lambda(power_random)], p=0.3),
         transforms.RandomApply([transforms.Lambda(add_noise)], p=0.3),
     ]
+)
+
+
+# Load the dataset and apply the transform
+base_dataset = datasets.ImageFolder(
+    training_data_dir,
+    transform=transforms.Compose(
+        [
+            whole_transform,
+            aug_transform,
+        ]
+    ),
+)
+
+train_dataset = RandomKCropsDataset(
+    base_dataset,
+    k=N_CROPS,
 )
 
 reverse_transforms = transforms.Compose(
@@ -175,18 +172,25 @@ reverse_transforms = transforms.Compose(
     ]
 )
 
+
+def worker_init_fn(worker_id):
+    seed = torch.initial_seed() % 2**32
+    np.random.seed(seed)
+
+
 train_loader = torch.utils.data.DataLoader(
     dataset=train_dataset,
     batch_size=batch_size,
     shuffle=True,
-    num_workers=0,
+    num_workers=0,  # can increase later
     pin_memory=False,
+    worker_init_fn=worker_init_fn,
 )
 
 
 class Diffusion:
     def __init__(
-        self, noise_steps=500, beta_start=1e-4, beta_end=0.02, img_size=image_size
+        self, noise_steps=300, beta_start=1e-4, beta_end=0.02, img_size=image_size
     ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
@@ -273,14 +277,14 @@ class Diffusion:
         return x
 
 
-model = UNet_conditional(
+model = UNet_conditional_256(
     c_in=1,
     c_out=1,
     image_size=image_size,
     time_dim=128,
-    attention_from=16,  # activate when using unet_conditional
+    attention_from=32,  # activate when using unet_conditional
     attention_to=8,  # activate when using unet_conditional
-    attention_on="up",  # up, down or both, depending on where to put attention layers
+    attention_on="both",  # up, down or both, depending on where to put attention layers
     cond_dims=conditioning_config,
 ).to(device)
 
@@ -288,13 +292,12 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 mse = nn.MSELoss()
 diffusion = Diffusion(img_size=image_size)
 l = len(train_loader)
-ema = EMA(0.9995)
+ema = EMA(0.999)
 ema_model = copy.deepcopy(model).eval().requires_grad_(False)
 
 # here a window pop upto browse for the model could be implemented
 """load_dir = str(current_dir) + "/All_CDDM_HR_Cat_V_5.pth.tar"
 load_model(load_dir)"""
-
 
 decode_maps = {
     "CT": CT_map,
@@ -325,7 +328,7 @@ print(
 )  # should be ~[-1,1]
 print("DEBUG: labels min/max:", labels.min().item(), labels.max().item())"""
 
-ema_start = 1000  # steps
+ema_start = 500  # steps
 global_step = 0
 
 for e in range(1, n_epoch + 1):

@@ -516,53 +516,127 @@ class UNet_conditional(nn.Module):
         return attn_modules
 
 
-class UNet_conditional_small(nn.Module):
-    def __init__(self, c_in=1, c_out=1, time_dim=512, cond_dims=None):
+class UNet_conditional_256(nn.Module):
+    def __init__(
+        self,
+        c_in=1,
+        c_out=1,
+        cond_dims=None,
+        image_size=256,
+        time_dim=128,
+        attention_from=64,
+        attention_to=16,
+        attention_on="both",  # "down", "up", "both"
+    ):
+        """
+        Conditional UNet for 256x256 patches with reduced width and selective attention.
+        """
         super().__init__()
-        self.time_dim = time_dim
         self.cond_dims = cond_dims
+        self.time_dim = time_dim
+        self.attention_on = attention_on
 
+        # ---------------------------
+        # Attention helper functions
+        # ---------------------------
+        def make_attention(channels, resolution):
+            n_heads = 2 if channels <= 64 else 4
+            min_res = n_heads
+            if resolution < min_res:
+                return nn.Identity()
+            if attention_to <= resolution <= attention_from:
+                return (
+                    SelfAttention2(channels)
+                    if n_heads == 2
+                    else SelfAttention4(channels)
+                )
+            return nn.Identity()
+
+        def maybe_attention_down(channels, resolution):
+            return (
+                make_attention(channels, resolution)
+                if attention_on in ["down", "both"]
+                else nn.Identity()
+            )
+
+        def maybe_attention_up(channels, resolution):
+            return (
+                make_attention(channels, resolution)
+                if attention_on in ["up", "both"]
+                else nn.Identity()
+            )
+
+        # ---------------------------
         # Initial conv
+        # ---------------------------
         self.inc = DoubleConv(c_in, 16)
+        res = image_size
 
-        # Down path
-        self.down1 = Down(16, 32, time_dim, cond_dims)  # x1: 32
-        self.down2 = Down(32, 64, time_dim, cond_dims)  # x2: 64
-        self.down3 = Down(64, 128, time_dim, cond_dims)  # x3: 128
+        # ---------------------------
+        # Downsampling path
+        # ---------------------------
+        self.down1 = Down(16, 32, self.time_dim, cond_dims)
+        res //= 2
+        self.sa1 = maybe_attention_down(32, res)
 
+        self.down2 = Down(32, 64, self.time_dim, cond_dims)
+        res //= 2
+        self.sa2 = maybe_attention_down(64, res)
+
+        self.down3 = Down(64, 128, self.time_dim, cond_dims)
+        res //= 2
+        self.sa3 = maybe_attention_down(128, res)
+
+        self.down4 = Down(128, 128, self.time_dim, cond_dims)
+        res //= 2
+        self.sa4 = maybe_attention_down(128, res)
+
+        self.down5 = Down(128, 128, self.time_dim, cond_dims)
+        res //= 2
+        self.sa5 = maybe_attention_down(128, res)
+
+        # ---------------------------
         # Bottleneck
+        # ---------------------------
         self.bot1 = DoubleConv(128, 128)
         self.bot2 = DoubleConv(128, 128)
 
-        # Up path — **in_ch = skip + current**
-        self.up3 = Up(128 + 64, 64, time_dim, cond_dims)  # x3 + x2
-        self.up2 = Up(64 + 32, 32, time_dim, cond_dims)  # result + x1
-        self.up1 = Up(32 + 16, 16, time_dim, cond_dims)  # result + x0
+        # ---------------------------
+        # Upsampling path
+        # ---------------------------
+        self.up5 = Up(256, 128, self.time_dim, cond_dims)
+        self.as5 = maybe_attention_up(128, res * 2)
 
-        # Output conv
+        self.up4 = Up(256, 128, self.time_dim, cond_dims)
+        self.as4 = maybe_attention_up(128, res * 4)
+
+        self.up3 = Up(256, 64, self.time_dim, cond_dims)
+        self.as3 = maybe_attention_up(64, res * 8)
+
+        self.up2 = Up(128, 32, self.time_dim, cond_dims)
+        self.as2 = maybe_attention_up(32, res * 16)
+
+        self.up1 = Up(64, 16, self.time_dim, cond_dims)
+        self.as1 = maybe_attention_up(16, res * 32)
+
+        # ---------------------------
+        # Output
+        # ---------------------------
         self.outc = nn.Conv2d(16, c_out, kernel_size=1)
 
-    def forward(self, x, t, CT, WR, COMP, MFR, MAG):
-        B = x.size(0)
-        t = t.view(B).float()
-
-        # Down
-        x0 = self.inc(x)  # 16
-        x1 = self.down1(x0, t, CT, WR, COMP, MFR, MAG)  # 32
-        x2 = self.down2(x1, t, CT, WR, COMP, MFR, MAG)  # 64
-        x3 = self.down3(x2, t, CT, WR, COMP, MFR, MAG)  # 128
-
-        # Bottleneck
-        x3 = self.bot1(x3)
-        x3 = self.bot2(x3)
-
-        # Up
-        x = self.up3(x3, x2, t, CT, WR, COMP, MFR, MAG)  # 64
-        x = self.up2(x, x1, t, CT, WR, COMP, MFR, MAG)  # 32
-        x = self.up1(x, x0, t, CT, WR, COMP, MFR, MAG)  # 16
-
-        out = self.outc(x)
-        return out
+    # ---------------------------
+    # Time embedding helpers
+    # ---------------------------
+    def pos_encoding(self, t, channels):
+        device = t.device
+        t = t.view(-1)
+        freqs = 1.0 / (
+            10000 ** (torch.arange(0, channels, 2, device=device).float() / channels)
+        )
+        pos_enc_a = torch.sin(t[:, None] * freqs)
+        pos_enc_b = torch.cos(t[:, None] * freqs)
+        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
+        return pos_enc.unsqueeze(-1).unsqueeze(-1)
 
     def get_time_embedding(self, t, time_dim):
         device = t.device
@@ -570,11 +644,18 @@ class UNet_conditional_small(nn.Module):
         t = t.view(B, 1).float()
         half_dim = time_dim // 2
         emb = torch.log(torch.tensor(10000.0, device=device)) / (half_dim - 1)
-        emb = torch.exp(
-            torch.arange(half_dim, device=device, dtype=torch.float32) * -emb
-        )
+        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
         emb = t * emb
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
         if time_dim % 2 == 1:
             emb = F.pad(emb, (0, 1))
         return emb
+
+    def get_last_attention_maps(self):
+        attn_modules = {}
+        for name, module in self.named_modules():
+            if isinstance(module, (SelfAttention2, SelfAttention4)) and hasattr(
+                module, "last_attn"
+            ):
+                attn_modules[name] = module
+        return attn_modules

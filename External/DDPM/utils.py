@@ -318,3 +318,51 @@ class FlattenedMultiCropDataset(torch.utils.data.Dataset):
         crop_idx = idx % self.n_crops
         crops, label = self.base[img_idx]
         return crops[crop_idx], label
+
+
+class RandomHorizontalCenterCrop:
+    def __init__(self, crop_size=256):
+        self.crop_size = crop_size
+
+    def __call__(self, img):
+        # img: PIL.Image
+        w, h = img.size
+        cs = self.crop_size
+
+        if w < cs or h < cs:
+            raise ValueError("Crop size larger than image")
+
+        # Vertical: fixed center
+        top = (h - cs) // 2
+
+        # Horizontal: random
+        left = torch.randint(0, w - cs + 1, (1,)).item()
+
+        return TF.crop(img, top, left, cs, cs)
+
+
+class RandomKCropsDataset(torch.utils.data.Dataset):
+    def __init__(self, base_dataset, k):
+        self.base = base_dataset
+        self.k = k
+
+    def __len__(self):
+        return len(self.base) * self.k
+
+    def __getitem__(self, idx):
+        img_idx = idx // self.k
+        img, label = self.base[img_idx]  # transform applied here
+        return img, label
+
+
+# utils.py
+def normalize_tensor(t):
+    return torch.clamp(t * 2 - 1, -1, 1)
+
+
+def power_random(x):
+    return x ** torch.empty(1).uniform_(0.9, 1.1)
+
+
+def add_noise(x, sigma=0.01):
+    return x + sigma * torch.randn_like(x)
