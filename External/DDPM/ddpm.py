@@ -288,7 +288,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 mse = nn.MSELoss()
 diffusion = Diffusion(img_size=image_size)
 l = len(train_loader)
-ema = EMA(0.995)
+ema = EMA(0.9995)
 ema_model = copy.deepcopy(model).eval().requires_grad_(False)
 
 # here a window pop upto browse for the model could be implemented
@@ -325,7 +325,11 @@ print(
 )  # should be ~[-1,1]
 print("DEBUG: labels min/max:", labels.min().item(), labels.max().item())"""
 
+ema_start = 1000  # steps
+global_step = 0
+
 for e in range(1, n_epoch + 1):
+    global_step += 1
     loss_epoch = 0.0
     t_values_epoch = []
 
@@ -355,7 +359,9 @@ for e in range(1, n_epoch + 1):
         loss.backward()
 
         optimizer.step()
-        ema.step_ema(ema_model, model)
+
+        if global_step > ema_start:
+            ema.step_ema(ema_model, model)
 
         loss_epoch += loss.item()
         t_values_epoch.append(t.detach().cpu())
@@ -419,7 +425,7 @@ for e in range(1, n_epoch + 1):
             fixed_titles = [format_physical_label(p) for p in fixed_phys]
 
             # ---------- ATTENTION EXTRACTION ----------
-            attn_maps = model.get_last_attention_maps()
+            attn_maps = ema_model.get_last_attention_maps()
 
             # Always define base RGB images
             imgs_rgb = ema_fixed_images_vis.repeat(1, 3, 1, 1)
