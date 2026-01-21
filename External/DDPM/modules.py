@@ -171,18 +171,15 @@ class Down(nn.Module):
 
 
 class Up(nn.Module):
-    def __init__(self, in_ch, out_ch, time_dim, cond_dims, bilinear=True):
+    def __init__(self, in_ch, out_ch, time_dim, cond_dims):
         super().__init__()
         self.time_dim = time_dim
         self.cond_dims = cond_dims
 
-        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
+        # remove fixed scale factor
         self.conv = DoubleConv(in_ch, out_ch)
-
-        # Time embedding
         self.emb_layer = nn.Linear(time_dim, out_ch)
 
-        # Conditional embeddings
         if cond_dims is not None:
             self.cond_embeddings = nn.ModuleDict()
             for k, n_levels in cond_dims["num_levels"].items():
@@ -194,12 +191,13 @@ class Up(nn.Module):
             )
 
     def forward(self, x, x_skip, t, CT=None, WR=None, COMP=None, MFR=None, MAG=None):
-        x = self.up(x)
+        # --- robust upsample to match skip size ---
+        x = F.interpolate(x, size=x_skip.shape[2:], mode="bilinear", align_corners=True)
         x = torch.cat([x_skip, x], dim=1)
         x = self.conv(x)
 
         # --- Time embedding ---
-        t_emb = UNet_conditional.get_time_embedding(self, t, self.time_dim)
+        t_emb = UNet_conditional_256.get_time_embedding(self, t, self.time_dim)
         t_emb = self.emb_layer(t_emb)
 
         # --- Conditional embedding ---
@@ -616,7 +614,7 @@ class UNet_conditional_256(nn.Module):
         self.up2 = Up(128, 32, self.time_dim, cond_dims)
         self.as2 = maybe_attention_up(32, res * 16)
 
-        self.up1 = Up(64, 16, self.time_dim, cond_dims)
+        self.up1 = Up(48, 16, self.time_dim, cond_dims)  # x0 + up2_out = 16+32=48 ✅
         self.as1 = maybe_attention_up(16, res * 32)
 
         # ---------------------------
@@ -651,6 +649,39 @@ class UNet_conditional_256(nn.Module):
             emb = F.pad(emb, (0, 1))
         return emb
 
+    # ---------------------------
+    # Forward
+    # ---------------------------
+    def forward(self, x, t, CT, WR, COMP, MFR, MAG, debug=False):
+        B = x.size(0)
+        t = t.view(B).float()
+
+        # Initial conv
+        x0 = self.inc(x)
+
+        # Downsampling
+        x1 = self.sa1(self.down1(x0, t, CT, WR, COMP, MFR, MAG))
+        x2 = self.sa2(self.down2(x1, t, CT, WR, COMP, MFR, MAG))
+        x3 = self.sa3(self.down3(x2, t, CT, WR, COMP, MFR, MAG))
+        x4 = self.sa4(self.down4(x3, t, CT, WR, COMP, MFR, MAG))
+        x5 = self.sa5(self.down5(x4, t, CT, WR, COMP, MFR, MAG))
+
+        # Bottleneck
+        xb = self.bot1(x5)
+        xb = self.bot2(xb)
+
+        # Upsampling
+        x = self.as5(self.up5(xb, x5, t, CT, WR, COMP, MFR, MAG))
+        x = self.as4(self.up4(x, x4, t, CT, WR, COMP, MFR, MAG))
+        x = self.as3(self.up3(x, x3, t, CT, WR, COMP, MFR, MAG))
+        x = self.as2(self.up2(x, x2, t, CT, WR, COMP, MFR, MAG))
+        x = self.as1(self.up1(x, x0, t, CT, WR, COMP, MFR, MAG))
+
+        return self.outc(x)
+
+    # ---------------------------
+    # Attention map helper
+    # ---------------------------
     def get_last_attention_maps(self):
         attn_modules = {}
         for name, module in self.named_modules():
