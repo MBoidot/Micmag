@@ -152,10 +152,19 @@ for i in range(len(base_dataset)):
         path = os.path.join(cropped_images_dir, f"img_{i}_crop_{j}_label_{label}.png")
         torchvision.utils.save_image((crop + 1) / 2, path)
 
+
+def add_noise(x, sigma=0.01):
+    return x + sigma * torch.randn_like(x)
+
+
 aug_transform = transforms.Compose(
     [
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.ColorJitter(brightness=0.05, contrast=0.05),
+        transforms.RandomApply(
+            [transforms.Lambda(lambda x: x ** torch.empty(1).uniform_(0.9, 1.1))], p=0.3
+        ),
+        transforms.RandomApply([transforms.Lambda(add_noise)], p=0.3),
     ]
 )
 
@@ -271,7 +280,7 @@ model = UNet_conditional(
     time_dim=128,
     attention_from=16,  # activate when using unet_conditional
     attention_to=8,  # activate when using unet_conditional
-    attention_on="down",  # up, down or both, depending on where to put attention layers
+    attention_on="up",  # up, down or both, depending on where to put attention layers
     cond_dims=conditioning_config,
 ).to(device)
 
@@ -540,7 +549,7 @@ for e in range(1, n_epoch + 1):
             save_dir = os.path.join(
                 current_dir,
                 "Generated_Images_training",
-                "UNET_conditional_Down_att_256_300ep.tar",
+                "UNET_conditional_Up_att_256_300ep.tar",
             )
             save_model(save_dir, model, ema_model, optimizer)
 
