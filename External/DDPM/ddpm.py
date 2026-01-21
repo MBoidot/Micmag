@@ -30,10 +30,10 @@ from modules import *
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch_size = 2
-N_CROPS = 2
+N_CROPS = 2  # number of random crops per image
 n_epoch = 300
 n_ax = max(1, int(n_epoch / 150))
-image_size = 256
+image_size = 128
 image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
@@ -292,7 +292,7 @@ optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 mse = nn.MSELoss()
 diffusion = Diffusion(img_size=image_size)
 l = len(train_loader)
-ema = EMA(0.999)
+ema = EMA(0.995)
 ema_model = copy.deepcopy(model).eval().requires_grad_(False)
 
 # here a window pop upto browse for the model could be implemented
@@ -328,11 +328,11 @@ print(
 )  # should be ~[-1,1]
 print("DEBUG: labels min/max:", labels.min().item(), labels.max().item())"""
 
-ema_start = 500  # steps
+ema_start = 0  # steps
 global_step = 0
 
 for e in range(1, n_epoch + 1):
-    global_step += 1
+
     loss_epoch = 0.0
     t_values_epoch = []
 
@@ -342,7 +342,7 @@ for e in range(1, n_epoch + 1):
     for step, (images, labels) in enumerate(
         tqdm(train_loader, desc=f"Epoch {e}/{n_epoch}", leave=False), start=1
     ):
-
+        global_step += 1
         optimizer.zero_grad()
         images = aug_transform(images).to(device)
         labels = labels.long().to(device)
