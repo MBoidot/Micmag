@@ -21,6 +21,7 @@ from utils import (
     normalize_tensor,
     power_random,
     add_noise,
+    make_model_name,
     RandomHorizontalCenterCrop,
     RandomKCropsDataset,
 )
@@ -38,9 +39,9 @@ image_shape = (1, image_size, image_size)
 image_dim = int(np.prod(image_shape))
 learning_rate = 3e-4
 num_workers = 0  # increase for preload data during training process
-noise_steps = 500  # noise steps used during the diffusion process
+noise_steps = 300  # noise steps used during the diffusion process
 noise_prints = 100  # print every noise_prints steps during sampling
-attention_from = 16
+attention_from = 32
 # Starting resolution map for incorporating attention layers in the UNET (typically 32 or 16)
 attention_to = 8
 # Ending resolution map for incorporating attention layers in the UNET (typically 8 )
@@ -559,14 +560,20 @@ for e in range(1, n_epoch + 1):
             )
 
             # ---------- CHECKPOINT ----------
+
+            model_name = make_model_name(
+                attention_on=attention_on,
+                attention_from=attention_from,
+                attention_to=attention_to,
+                image_size=image_size,
+                n_epoch=n_epoch,
+            )
+
             save_dir = os.path.join(
-                current_dir,
-                "Generated_Images_training",
-                "UNET_conditional_Up_att_256_300ep.tar",
+                current_dir, "Generated_Images_training", model_name
             )
             save_model(save_dir, model, ema_model, optimizer)
-
-            print(f"[Epoch {e}] Sampling & checkpoint saved.\n")
+            print(f"[Epoch {e}] Checkpoint saved to {save_dir}\n")
 
         # ---------- GPU memory summary ----------
         if device.type == "cuda":

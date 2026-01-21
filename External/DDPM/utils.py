@@ -366,3 +366,19 @@ def power_random(x):
 
 def add_noise(x, sigma=0.01):
     return x + sigma * torch.randn_like(x)
+
+
+def make_model_name(
+    attention_on="both", attention_from=16, attention_to=8, image_size=256, n_epoch=300
+):
+    """
+    Generates a model filename like:
+    UNET_conditional_Up_att_16-8_256px_300ep.tar
+    """
+    # Map attention string
+    att_map = {"up": "Up_att", "down": "Down_att", "both": "Both_att"}
+    att_str = att_map.get(attention_on.lower(), "Both_att")
+
+    # Compose filename
+    filename = f"UNET_conditional_{att_str}_{attention_from}-{attention_to}_{image_size}px_{n_epoch}ep.tar"
+    return filename
